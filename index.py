@@ -90,9 +90,17 @@ def stream(item_id):
                 for idx, stream_source in enumerate(item.get("streams", [])):
                     response_streams.append({
                         "title": stream_source.get("title", f"Source Feed #{idx+1}"),
-                        "url": stream_source["url"]
+                        "url": stream_source["url"],
+                        # ⚠️ THIS FIXES THE MOBILE LOADING ERROR:
+                        # It tells Stremio to open the stream link using an external player app on your phone
+                        "behaviorHints": {
+                            "notWebReady": True
+                        }
                     })
                 return jsonify({"streams": response_streams})
+                
+    return jsonify({"streams": []})
+
                 
     return jsonify({"streams": []})
 
