@@ -144,13 +144,16 @@ def stream(item_id):
             if item["id"] == clean_id:
                 return jsonify({
                     "streams": [{
-                        "title": f"Play on {item.get('source_tag', 'Stremio Player')}",
-                        # Using 'externalUrl' opens a browser tab.
-                        # Using 'url' with the embed source tells Stremio to open it directly inside its built-in browser engine!
-                        "url": item["iframe"]
+                        "title": f"Embed Play on {item.get('source_tag', 'Stremio Player')}",
+                        "url": item["iframe"],
+                        # This extra parameter fixes the black screen bug by telling Stremio it is loading an iframe page layout
+                        "behaviorHints": {
+                            "notWebReady": True
+                        }
                     }]
                 })
     return jsonify({"streams": []})
+
 
 
 if __name__ == '__main__':
