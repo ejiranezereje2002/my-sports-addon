@@ -144,11 +144,14 @@ def stream(item_id):
             if item["id"] == clean_id:
                 return jsonify({
                     "streams": [{
-                        "title": f"Watch on {item.get('source_tag', 'Web Player')}",
-                        "externalUrl": item["iframe"]
+                        "title": f"Play on {item.get('source_tag', 'Stremio Player')}",
+                        # Using 'externalUrl' opens a browser tab.
+                        # Using 'url' with the embed source tells Stremio to open it directly inside its built-in browser engine!
+                        "url": item["iframe"]
                     }]
                 })
     return jsonify({"streams": []})
+
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)
