@@ -1,11 +1,15 @@
 import json
 import time
 import urllib.request
-from http.server import BaseHTTPRequestHandler
+from flask import Flask, jsonify
+from flask_cors import CORS
+
+app = Flask(__name__)
+CORS(app)  # This forces clear CORS paths that Stremio requires
 
 MANIFEST = {
     "id": "vercel.livesports.addon",
-    "version": "1.2.0",
+    "version": "1.3.0",
     "name": "Cloud Live Sports",
     "description": "Live sports sorted by category and live status!",
     "resources": ["catalog", "meta", "stream"],
@@ -49,124 +53,73 @@ def fetch_api_data():
     except Exception:
         return {"streams": []}
 
-class handler(BaseHTTPRequestHandler):
-    def send_cors_headers(self):
-        # Crucial security headers needed by Stremio
-        self.send_header('Access-Control-Allow-Origin', '*')
-        self.send_header('Access-Control-Allow-Methods', 'GET, OPTIONS')
-        self.send_header('Access-Control-Allow-Headers', '*')
+@app.route('/')
+@app.route('/manifest.json')
+def manifest():
+    return jsonify(MANIFEST)
 
-    def do_OPTIONS(self):
-        # Handle browser preflight checks
-        self.send_response(204)
-        self.send_cors_headers()
-        self.end_headers()
+@app.route('/catalog/tv/<catalog_id>.json')
+def catalog(catalog_id):
+    api_data = fetch_api_data()
+    metas = []
+    current_time = int(time.time())
 
-    def do_GET(self):
-        path = self.path
-        api_data = fetch_api_data()
-        current_time = int(time.time())
+    for group in api_data.get("streams", []):
+        category = group.get("category", "Sports")
+        if catalog_id != "live_now" and category != CATEGORY_MAPPING.get(catalog_id):
+            continue
 
-        # Route 1: Manifest
-        if path.endswith("/manifest.json"):
-            self.send_response(200)
-            self.send_header('Content-Type', 'application/json')
-            self.send_cors_headers()
-            self.end_headers()
-            self.wfile.write(json.dumps(MANIFEST).encode('utf-8'))
-            return
+        for item in group.get("streams", []):
+            starts = item.get("starts_at", 0)
+            ends = item.get("ends_at", 0)
+            is_always_live = item.get("always_live", 0) == 1 or group.get("always_live") is True
+            is_live = is_always_live or (starts <= current_time <= ends)
 
-        # Route 2: Catalog Filtering
-        elif "/catalog/tv/" in path:
-            self.send_response(200)
-            self.send_header('Content-Type', 'application/json')
-            self.send_cors_headers()
-            self.end_headers()
+            if catalog_id == "live_now" and not is_live:
+                continue
 
-            catalog_id = path.split("/")[-1].replace(".json", "")
-            metas = []
+            status_prefix = "🔴 LIVE: " if is_live else "⏳ UPCOMING: "
+            if catalog_id == "live_now":
+                status_prefix = ""
 
-            for group in api_data.get("streams", []):
-                category = group.get("category", "Sports")
-                if catalog_id != "live_now" and category != CATEGORY_MAPPING.get(catalog_id):
-                    continue
+            metas.append({
+                "id": f"sport_{item['id']}",
+                "type": "tv",
+                "name": f"{status_prefix}{item['name']}",
+                "poster": item.get("poster", ""),
+                "description": f"Sport: {category} | Source: {item.get('source_tag', 'Live')}"
+            })
+    return jsonify({"metas": metas})
 
-                for item in group.get("streams", []):
-                    starts = item.get("starts_at", 0)
-                    ends = item.get("ends_at", 0)
-                    is_always_live = item.get("always_live", 0) == 1 or group.get("always_live") is True
-                    is_live = is_always_live or (starts <= current_time <= ends)
-
-                    if catalog_id == "live_now" and not is_live:
-                        continue
-
-                    status_prefix = "🔴 LIVE: " if is_live else "⏳ UPCOMING: "
-                    if catalog_id == "live_now":
-                        status_prefix = ""
-
-                    metas.append({
-                        "id": f"sport_{item['id']}",
+@app.route('/meta/tv/<item_id>.json')
+def meta(item_id):
+    clean_id = int(item_id.replace("sport_", ""))
+    api_data = fetch_api_data()
+    for group in api_data.get("streams", []):
+        for item in group.get("streams", []):
+            if item["id"] == clean_id:
+                return jsonify({
+                    "meta": {
+                        "id": item_id,
                         "type": "tv",
-                        "name": f"{status_prefix}{item['name']}",
+                        "name": item["name"],
                         "poster": item.get("poster", ""),
-                        "description": f"Sport: {category} | Source: {item.get('source_tag', 'Live')}"
-                    })
-            self.wfile.write(json.dumps({"metas": metas}).encode('utf-8'))
-            return
+                        "description": f"Source: {item.get('source_tag')}"
+                    }
+                })
+    return jsonify({"meta": {}})
 
-        # Route 3: Meta Layout
-        elif "/meta/tv/" in path:
-            self.send_response(200)
-            self.send_header('Content-Type', 'application/json')
-            self.send_cors_headers()
-            self.end_headers()
-
-            item_id = path.split("/")[-1].replace(".json", "")
-            clean_id = int(item_id.replace("sport_", ""))
-            
-            for group in api_data.get("streams", []):
-                for item in group.get("streams", []):
-                    if item["id"] == clean_id:
-                        meta_obj = {
-                            "meta": {
-                                "id": item_id,
-                                "type": "tv",
-                                "name": item["name"],
-                                "poster": item.get("poster", ""),
-                                "description": f"Source: {item.get('source_tag')}"
-                            }
-                        }
-                        self.wfile.write(json.dumps(meta_obj).encode('utf-8'))
-                        return
-            self.wfile.write(json.dumps({"meta": {}}).encode('utf-8'))
-            return
-
-        # Route 4: Streams Linking
-        elif "/stream/tv/" in path:
-            self.send_response(200)
-            self.send_header('Content-Type', 'application/json')
-            self.send_cors_headers()
-            self.end_headers()
-
-            item_id = path.split("/")[-1].replace(".json", "")
-            clean_id = int(item_id.replace("sport_", ""))
-            
-            for group in api_data.get("streams", []):
-                for item in group.get("streams", []):
-                    if item["id"] == clean_id:
-                        stream_obj = {
-                            "streams": [{
-                                "title": f"Watch on {item.get('source_tag', 'Web Player')}",
-                                "externalUrl": item["iframe"]
-                            }]
-                        }
-                        self.wfile.write(json.dumps(stream_obj).encode('utf-8'))
-                        return
-            self.wfile.write(json.dumps({"streams": []}).encode('utf-8'))
-            return
-
-        # Generic Fallback Error Response
-        self.send_response(404)
-        self.send_cors_headers()
-        self.end_headers()
-        self.wfile.write(json.dumps({"error": "Not Found"}).encode('utf-8'))
+@app.route('/stream/tv/<item_id>.json')
+def stream(item_id):
+    clean_id = int(item_id.replace("sport_", ""))
+    api_data = fetch_api_data()
+    for group in api_data.get("streams", []):
+        for item in group.get("streams", []):
+            if item["id"] == clean_id:
+                return jsonify({
+                    "streams": [{
+                        "title": f"Watch on {item.get('source_tag', 'Web Player')}",
+                        "externalUrl": item["iframe"]
+                    }]
+                })
+    return jsonify({"streams": []})
