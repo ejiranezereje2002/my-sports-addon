@@ -4,40 +4,24 @@ from flask import Flask, jsonify
 from flask_cors import CORS
 
 app = Flask(__name__)
-CORS(app)  # Keeps communication completely open for Stremio cross-origin checks
+CORS(app)  # Enforces complete cross-origin compliance for Stremio mobile clients
 
 MANIFEST = {
     "id": "vercel.livesports.addon",
-    "version": "3.0.0",
+    "version": "3.1.0",
     "name": "Cloud Live Sports",
     "description": "Live multi-sport streams playing natively inside Stremio!",
     "resources": ["catalog", "meta", "stream"],
     "types": ["tv"],
     "catalogs": [
         {"type": "tv", "id": "live_now", "name": "🔴 Live Now"},
-        {"type": "tv", "id": "football", "name": "⚽ Football/Soccer"},
-        {"type": "tv", "id": "american_football", "name": "🏈 American Football"},
-        {"type": "tv", "id": "basketball", "name": "🏀 Basketball"},
-        {"type": "tv", "id": "baseball", "name": "⚾ Baseball"},
-        {"type": "tv", "id": "darts", "name": "🎯 Darts"},
-        {"type": "tv", "id": "motor_sports", "name": "🏎️ Motorsports"}
+        {"type": "tv", "id": "football", "name": "⚽ Sports Streams"}
     ]
-}
-
-# Standardized mapping between your catalog keys and the incoming API strings
-SPORT_MAPPING = {
-    "football": "Football",
-    "american_football": "american-football",
-    "basketball": "Basketball",
-    "baseball": "Baseball",
-    "darts": "Darts",
-    "motor_sports": "motor-sports"
 }
 
 def fetch_api_data():
     try:
-        # Replaced with your new proxy API endpoint
-        url = "https://tap4sport.st/api/events-proxy"
+        url = "https://tap4sport.st"
         req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
         with urllib.request.urlopen(req) as response:
             return json.loads(response.read().decode('utf-8'))
@@ -56,33 +40,30 @@ def catalog(catalog_id):
     api_data = fetch_api_data()
     metas = []
 
-    # The new API houses items directly inside a "data" array list
     for item in api_data.get("data", []):
+        # Fallback values to prevent extraction errors if fields are missing
+        match_id = item.get("id", "")
+        if not match_id:
+            continue
+            
         is_live = item.get("_live", False)
-        item_sport = item.get("sport", "")
+        sport_type = item.get("sport", "Live Event").upper()
+        title_name = item.get("title", "Live Match")
 
-        # Category Filter logic
-        if clean_catalog_id == "live_now":
-            if not is_live:
-                continue
-        else:
-            mapped_sport = SPORT_MAPPING.get(clean_catalog_id)
-            if item_sport != mapped_sport:
-                continue
-
+        # Force label string tags cleanly on the card layout
         status_prefix = "🔴 LIVE: " if is_live else "⏳ UPCOMING: "
         if clean_catalog_id == "live_now":
             status_prefix = ""
 
-        # Build neat description text using home and away team keys if available
-        desc = f"League: {item.get('league', 'Sports Match')}"
-        if item.get("away_team"):
+        # Build clean visual row details
+        desc = f"Sport: {sport_type} | League: {item.get('league', 'Sports Match')}"
+        if item.get("home_team") and item.get("away_team"):
             desc = f"{item['home_team']} vs {item['away_team']} | {desc}"
 
         metas.append({
-            "id": f"sport_{item['id']}",
+            "id": f"sport_{match_id}",
             "type": "tv",
-            "name": f"{status_prefix}{item['title']}",
+            "name": f"{status_prefix}{title_name}",
             "poster": item.get("poster", "https://streamed.pk"),
             "description": desc
         })
@@ -96,14 +77,14 @@ def meta(item_id):
     api_data = fetch_api_data()
     
     for item in api_data.get("data", []):
-        if item["id"] == clean_id:
+        if str(item.get("id")) == str(clean_id):
             return jsonify({
                 "meta": {
                     "id": f"sport_{clean_id}",
                     "type": "tv",
-                    "name": item["title"],
-                    "poster": item.get("poster", ""),
-                    "description": f"Sport: {item.get('sport')} | League: {item.get('league')}"
+                    "name": item.get("title", "Live Match"),
+                    "poster": item.get("poster", "https://streamed.pk"),
+                    "description": f"Sport: {item.get('sport')} | League: {item.get('league', 'Match')}"
                 }
             })
     return jsonify({"meta": {}})
@@ -116,22 +97,23 @@ def stream(item_id):
     response_streams = []
     
     for item in api_data.get("data", []):
-        if item["id"] == clean_id:
-            # Loop through all embedded feeds/sources available for this match
+        if str(item.get("id")) == str(clean_id):
+            # Extrapolate alternative feeds natively from sources matrix array
             for idx, source in enumerate(item.get("sources", [])):
-                source_name = source.get("source", f"Feed #{idx+1}").upper()
+                source_label = source.get("source", f"Feed #{idx+1}").upper()
+                source_id = source.get("id", "")
                 
-                # Constructing standard web-ready streaming URLs from the source IDs
-                # Note: If these targets use raw m3u8 playlist files, they trigger native playback.
-                stream_url = f"https://streamed.pk{source.get('id')}"
-                
-                response_streams.append({
-                    "title": f"Watch Link ({source_name})",
-                    "url": stream_url,
-                    "behaviorHints": {
-                        "notWebReady": True  # Forces Android/iOS to hand playback safely to an external app (VLC/MX)
-                    }
-                })
+                if source_id:
+                    # Construct valid native web player stream paths
+                    stream_url = f"https://streamed.pk{source_id}"
+                    
+                    response_streams.append({
+                        "title": f"Play Link ({source_label})",
+                        "url": stream_url,
+                        "behaviorHints": {
+                            "notWebReady": True  # Forces smooth handover to phone apps like VLC
+                        }
+                    })
             return jsonify({"streams": response_streams})
                 
     return jsonify({"streams": []})
