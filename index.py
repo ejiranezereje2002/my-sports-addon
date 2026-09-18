@@ -1,46 +1,49 @@
 import json
+import time
 import urllib.request
+from datetime import datetime
 from flask import Flask, jsonify
 from flask_cors import CORS
 
 app = Flask(__name__)
-CORS(app)  # Enforces explicit cross-origin resource permissions for Stremio app clients
+CORS(app)
 
 MANIFEST = {
     "id": "vercel.livesports.addon",
-    "version": "3.3.0",
+    "version": "2.0.0",
     "name": "Cloud Live Sports",
-    "description": "Adaptive sports streams playing natively inside Stremio!",
+    "description": "Direct m3u8 football streams playing natively in Stremio!",
     "resources": ["catalog", "meta", "stream"],
     "types": ["tv"],
     "catalogs": [
         {"type": "tv", "id": "live_now", "name": "🔴 Live Now"},
-        {"type": "tv", "id": "all_matches", "name": "🌐 All Matches"}
+        {"type": "tv", "id": "football", "name": "⚽ Football/Soccer"}
     ]
 }
 
 def fetch_api_data():
     try:
-        url = "https://tap4sport.st"
+        # Replaced with your new direct video stream API endpoint
+        url = "https://www.futbol-x.xyz/api/football.json"
         req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
         with urllib.request.urlopen(req) as response:
-            raw_payload = json.loads(response.read().decode('utf-8'))
-            
-            # --- AGNOSTIC PAYLOAD LOOKUP ---
-            # Automatically unpack array datasets regardless of the root key name
-            if isinstance(raw_payload, list):
-                return raw_payload
-            if isinstance(raw_payload, dict):
-                for key in ["data", "events", "streams", "matches"]:
-                    if key in raw_payload and isinstance(raw_payload[key], list):
-                        return raw_payload[key]
-                # If no standard keys match, scan for any loose internal array
-                for val in raw_payload.values():
-                    if isinstance(val, list):
-                        return val
-            return []
+            return json.loads(response.read().decode('utf-8'))
     except Exception:
-        return []
+        return {"streams": []}
+
+def is_event_live(starts_at_str, ends_at_str, always_live_val):
+    if always_live_val == 1:
+        return True
+    try:
+        # Parse the new ISO time strings (e.g. 2026-09-18T21:30:00) into a Unix timestamp
+        start_ts = int(datetime.fromisoformat(starts_at_str).timestamp())
+        end_ts = int(datetime.fromisoformat(ends_at_str).timestamp())
+        current_ts = int(time.time())
+        
+        # Generous 1-hour pre-buffer and post-buffer padding for timezones
+        return (start_ts - 3600) <= current_ts <= (end_ts + 3600)
+    except Exception:
+        return True # Fallback to true if date parsing fails so games don't disappear
 
 @app.route('/')
 @app.route('/manifest.json')
@@ -51,106 +54,77 @@ def manifest():
 @app.route('/catalog/tv/<catalog_id>.json')
 def catalog(catalog_id):
     clean_catalog_id = catalog_id.replace(".json", "")
-    items_pool = fetch_api_data()
+    api_data = fetch_api_data()
     metas = []
 
-    for item in items_pool:
-        if not isinstance(item, dict):
-            continue
-
-        # Extract standard unique index tracker elements
-        match_id = item.get("id") or item.get("uri_name") or item.get("name")
-        if not match_id:
-            continue
-
-        # Flexible live state assessment parameters
-        is_live = item.get("_live") is True or item.get("is_live") is True or item.get("live") == 1
+    for group in api_data.get("streams", []):
+        category = group.get("category", "Football")
         
-        # If browsing the Live Now view block, pass over anything not active
-        if clean_catalog_id == "live_now" and not is_live:
-            continue
+        for item in group.get("streams", []):
+            starts = item.get("starts_at", "")
+            ends = item.get("ends_at", "")
+            always_live = item.get("always_live", 0)
 
-        sport_label = str(item.get("sport", "Live Event")).upper()
-        title_name = item.get("title") or item.get("name") or "Live Sports Event"
-        
-        # Structure clear descriptions matching home/away teams or generic tags
-        league_text = item.get("league") or "Sports Match"
-        if item.get("home_team") and item.get("away_team"):
-            description_body = f"{item['home_team']} vs {item['away_team']} | Sport: {sport_label} ({league_text})"
-        else:
-            description_body = f"Sport: {sport_label} | League: {league_text}"
+            # Check if the current match is broadcasting right now
+            is_live = is_event_live(starts, ends, always_live)
 
-        status_tag = "🔴 LIVE: " if is_live else "⏳ UPCOMING: "
-        if clean_catalog_id == "live_now":
-            status_tag = ""
+            # If browsing the Live Now section, strictly hide non-live events
+            if clean_catalog_id == "live_now" and not is_live:
+                continue
 
-        metas.append({
-            "id": f"sport_{match_id}",
-            "type": "tv",
-            "name": f"{status_tag}{title_name}",
-            "poster": item.get("poster") or "https://streamed.pk",
-            "description": description_body
-        })
+            status_prefix = "🔴 LIVE: " if is_live else "⏳ UPCOMING: "
+            if clean_catalog_id == "live_now" or always_live == 1:
+                status_prefix = ""
+
+            metas.append({
+                # We use uri_name as a unique tracking key string (e.g., sport_b4v1u8)
+                "id": f"sport_{item['uri_name']}",
+                "type": "tv",
+                "name": f"{status_prefix}{item['name']}",
+                "poster": item.get("poster", ""),
+                "description": f"League/Tag: {item.get('tag', 'Match')} | Total Sources: {len(item.get('streams', []))}"
+            })
 
     return jsonify({"metas": metas})
 
 @app.route('/meta/tv/<item_id>')
 @app.route('/meta/tv/<item_id>.json')
 def meta(item_id):
-    clean_id = item_id.replace(".json", "").replace("sport_", "")
-    items_pool = fetch_api_data()
+    clean_uri_name = item_id.replace(".json", "").replace("sport_", "")
+    api_data = fetch_api_data()
     
-    for item in items_pool:
-        if not isinstance(item, dict):
-            continue
-        match_id = item.get("id") or item.get("uri_name") or item.get("name")
-        if str(match_id) == str(clean_id):
-            return jsonify({
-                "meta": {
-                    "id": f"sport_{clean_id}",
-                    "type": "tv",
-                    "name": item.get("title") or item.get("name") or "Live Match",
-                    "poster": item.get("poster") or "https://streamed.pk",
-                    "description": f"Sport: {item.get('sport')} | League: {item.get('league', 'Match')}"
-                }
-            })
+    for group in api_data.get("streams", []):
+        for item in group.get("streams", []):
+            if item["uri_name"] == clean_uri_name:
+                return jsonify({
+                    "meta": {
+                        "id": f"sport_{clean_uri_name}",
+                        "type": "tv",
+                        "name": item["name"],
+                        "poster": item.get("poster", ""),
+                        "description": f"League: {item.get('tag', 'Match')}"
+                    }
+                })
     return jsonify({"meta": {}})
 
 @app.route('/stream/tv/<item_id>')
 @app.route('/stream/tv/<item_id>.json')
 def stream(item_id):
-    clean_id = item_id.replace(".json", "").replace("sport_", "")
-    items_pool = fetch_api_data()
+    clean_uri_name = item_id.replace(".json", "").replace("sport_", "")
+    api_data = fetch_api_data()
     response_streams = []
     
-    for item in items_pool:
-        if not isinstance(item, dict):
-            continue
-        match_id = item.get("id") or item.get("uri_name") or item.get("name")
-        if str(match_id) == str(clean_id):
-            
-            # Map structural arrays representing links
-            feeds_list = item.get("sources") or item.get("streams") or []
-            for idx, source in enumerate(feeds_list):
-                if not isinstance(source, dict):
-                    continue
-                
-                label = str(source.get("source") or source.get("title") or f"Source Feed #{idx+1}").upper()
-                target_url = source.get("url") or source.get("iframe")
-                
-                # If the item relies on internal index IDs, reconstruct the player path
-                if not target_url and source.get("id"):
-                    target_url = f"https://streamed.pk{source.get('id')}"
-                
-                if target_url:
+    for group in api_data.get("streams", []):
+        for item in group.get("streams", []):
+            if item["uri_name"] == clean_uri_name:
+                # Loop through all embedded feeds available for this specific match
+                for idx, stream_source in enumerate(item.get("streams", [])):
                     response_streams.append({
-                        "title": f"Play Link ({label})",
-                        "url": target_url,
-                        "behaviorHints": {
-                            "notWebReady": True  # Instructs Stremio on phones/TVs to use VLC/MX Player safely
-                        }
+                        "title": stream_source.get("title", f"Source Feed #{idx+1}"),
+                        # Passing a direct .m3u8 URL triggers Stremio's default hardware media player window
+                        "url": stream_source["url"]
                     })
-            return jsonify({"streams": response_streams})
+                return jsonify({"streams": response_streams})
                 
     return jsonify({"streams": []})
 
