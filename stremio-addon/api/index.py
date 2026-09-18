@@ -50,23 +50,39 @@ def fetch_api_data():
         return {"streams": []}
 
 class handler(BaseHTTPRequestHandler):
-    def do_GET(self):
-        self.send_response(200)
-        self.send_header('Content-Type', 'application/json')
+    def send_cors_headers(self):
+        # Crucial security headers needed by Stremio
         self.send_header('Access-Control-Allow-Origin', '*')
+        self.send_header('Access-Control-Allow-Methods', 'GET, OPTIONS')
+        self.send_header('Access-Control-Allow-Headers', '*')
+
+    def do_OPTIONS(self):
+        # Handle browser preflight checks
+        self.send_response(204)
+        self.send_cors_headers()
         self.end_headers()
 
+    def do_GET(self):
         path = self.path
         api_data = fetch_api_data()
         current_time = int(time.time())
 
         # Route 1: Manifest
         if path.endswith("/manifest.json"):
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self.send_cors_headers()
+            self.end_headers()
             self.wfile.write(json.dumps(MANIFEST).encode('utf-8'))
             return
 
         # Route 2: Catalog Filtering
         elif "/catalog/tv/" in path:
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self.send_cors_headers()
+            self.end_headers()
+
             catalog_id = path.split("/")[-1].replace(".json", "")
             metas = []
 
@@ -100,6 +116,11 @@ class handler(BaseHTTPRequestHandler):
 
         # Route 3: Meta Layout
         elif "/meta/tv/" in path:
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self.send_cors_headers()
+            self.end_headers()
+
             item_id = path.split("/")[-1].replace(".json", "")
             clean_id = int(item_id.replace("sport_", ""))
             
@@ -122,6 +143,11 @@ class handler(BaseHTTPRequestHandler):
 
         # Route 4: Streams Linking
         elif "/stream/tv/" in path:
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self.send_cors_headers()
+            self.end_headers()
+
             item_id = path.split("/")[-1].replace(".json", "")
             clean_id = int(item_id.replace("sport_", ""))
             
@@ -139,4 +165,8 @@ class handler(BaseHTTPRequestHandler):
             self.wfile.write(json.dumps({"streams": []}).encode('utf-8'))
             return
 
-        self.wfile.write(json.dumps({"streams": []}).encode('utf-8'))
+        # Generic Fallback Error Response
+        self.send_response(404)
+        self.send_cors_headers()
+        self.end_headers()
+        self.wfile.write(json.dumps({"error": "Not Found"}).encode('utf-8'))
