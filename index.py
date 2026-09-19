@@ -1,18 +1,17 @@
 import json
 import time
-import re
 import urllib.request
 from flask import Flask, jsonify
 from flask_cors import CORS
 
 app = Flask(__name__)
-CORS(app)  # Enforces open access compliance rules for Stremio mobile clients
+CORS(app)  # Enforces cross-origin compliance for Stremio app clients
 
 MANIFEST = {
     "id": "vercel.livesports.addon",
-    "version": "6.2.0",
-    "name": "Cloud Live Sports NATIVE",
-    "description": "Auto-sniffed direct m3u8 sports playing perfectly inside Stremio!",
+    "version": "7.0.0",
+    "name": "Cloud Live Sports",
+    "description": "Multi-sport live streaming directories running reliably on Vercel!",
     "resources": ["catalog", "meta", "stream"],
     "types": ["tv"],
     "catalogs": [
@@ -57,27 +56,6 @@ def fetch_api_data():
             return json.loads(response.read().decode('utf-8'))
     except Exception:
         return {"streams": []}
-
-def extract_hidden_m3u8(embed_url):
-    """
-    Automated background link sniffer. Reads the target HTML page 
-    and extracts hidden .m3u8 video streaming configurations instantly.
-    """
-    try:
-        req = urllib.request.Request(embed_url, headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'})
-        with urllib.request.urlopen(req, timeout=4) as response:
-            html_content = response.read().decode('utf-8', errors='ignore')
-            
-            # Locate all potential streaming configurations inside the page layout
-            found_urls = re.findall(r'(https?://[^\s"\']+\.m3u8[^\s"\']*)', html_content)
-            if found_urls:
-                # FIXED TYPO BUG: Added proper bracket indexing notation to extract the string element
-                first_url = found_urls[0]
-                clean_url = first_url.replace('\\/', '/')
-                return clean_url
-    except Exception:
-        pass
-    return None
 
 @app.route('/')
 @app.route('/manifest.json')
@@ -156,22 +134,10 @@ def stream(item_id):
     for group in api_data.get("streams", []):
         for item in group.get("streams", []):
             if item["id"] == clean_id:
-                
-                # Run background sniffing routine
-                iframe_url = item.get("iframe", "")
-                if iframe_url:
-                    sniffed_video_url = extract_hidden_m3u8(iframe_url)
-                    if sniffed_video_url:
-                        response_streams.append({
-                            "title": f"⚡ Play Native ({item.get('source_tag', 'Main Feed')})",
-                            "url": sniffed_video_url
-                        })
-                
-                # Bulletproof Fallback: Keeps streams active if scraping hits a restriction block
+                # Main Feed Route Setup - Direct external URL link routing format
                 response_streams.append({
-                    "title": f"🌐 Web Player Fallback ({item.get('source_tag', 'Embed Frame')})",
-                    "url": iframe_url,
-                    "behaviorHints": {"notWebReady": True}
+                    "title": f"Watch Link ({item.get('source_tag', 'Main Feed')})",
+                    "externalUrl": item["iframe"]
                 })
                 
                 # Check for alternative substation channels
@@ -179,16 +145,9 @@ def stream(item_id):
                     sub_url = sub.get("iframe", "")
                     if sub_url:
                         sub_label = sub.get("source_tag") or sub.get("locale", "").upper() or f"Feed #{idx+2}"
-                        sniffed_sub_url = extract_hidden_m3u8(sub_url)
-                        if sniffed_sub_url:
-                            response_streams.append({
-                                "title": f"⚡ Play Native ({sub_label})",
-                                "url": sniffed_sub_url
-                            })
                         response_streams.append({
-                            "title": f"🌐 Web Player Fallback ({sub_label})",
-                            "url": sub_url,
-                            "behaviorHints": {"notWebReady": True}
+                            "title": f"Watch Link ({sub_label})",
+                            "externalUrl": sub_url
                         })
                         
                 return jsonify({"streams": response_streams})
