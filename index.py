@@ -34,19 +34,28 @@ def fetch_sports_events():
         return []
 
 class handler(BaseHTTPRequestHandler):
+    def send_cors_headers(self, status_code=200, content_type='application/json'):
+        self.send_response(status_code)
+        self.send_header('Content-Type', content_type)
+        self.send_header('Access-Control-Allow-Origin', '*')
+        self.send_header('Access-Control-Allow-Methods', 'GET, OPTIONS')
+        self.send_header('Access-Control-Allow-Headers', '*')
+        self.end_headers()
+
+    # 1. Handle critical OPTIONS request checkpoints required by Stremio
+    def do_OPTIONS(self):
+        self.send_cors_headers(200)
+
     def do_GET(self):
         path = self.path
 
-        # 1. Handle Stremio Manifest Requests
+        # 2. Serve Manifest JSON
         if "/manifest.json" in path or path == "/":
-            self.send_response(200)
-            self.send_header('Content-Type', 'application/json')
-            self.send_header('Access-Control-Allow-Origin', '*')
-            self.end_headers()
+            self.send_cors_headers(200)
             self.wfile.write(json.dumps(MANIFEST).encode('utf-8'))
             return
 
-        # 2. Handle Stremio Catalog Requests (Fixed string tracking pattern)
+        # 3. Serve Catalog JSON
         elif "/catalog/tv/live_sports_catalog" in path:
             events = fetch_sports_events()
             metas = []
@@ -60,7 +69,6 @@ class handler(BaseHTTPRequestHandler):
                     if not event_id:
                         continue
 
-                    # Validate flag icons safely
                     raw_country = event.get("countryCode")
                     if raw_country and str(raw_country).strip():
                         poster_url = f"https://flagsapi.com{str(raw_country).strip().upper()}/flat/64.png"
@@ -75,18 +83,14 @@ class handler(BaseHTTPRequestHandler):
                         "description": f"Live sports stream. Event ID: {event_id}"
                     })
                 
-            self.send_response(200)
-            self.send_header('Content-Type', 'application/json')
-            self.send_header('Access-Control-Allow-Origin', '*')
-            self.end_headers()
+            self.send_cors_headers(200)
             self.wfile.write(json.dumps({"metas": metas}).encode('utf-8'))
             return
 
-        # 3. Handle Stremio Stream Requests
+        # 4. Serve Stream JSON
         elif "/stream/tv/" in path:
             try:
                 stream_id = path.split("/stream/tv/")[-1].replace(".json", "")
-                # Clean nested parameters if present
                 if "?" in stream_id:
                     stream_id = stream_id.split("?")[0]
                 target_id = stream_id.replace("live_sport:", "")
@@ -116,15 +120,10 @@ class handler(BaseHTTPRequestHandler):
                                 "url": embed_url
                             })
 
-            self.send_response(200)
-            self.send_header('Content-Type', 'application/json')
-            self.send_header('Access-Control-Allow-Origin', '*')
-            self.end_headers()
+            self.send_cors_headers(200)
             self.wfile.write(json.dumps({"streams": streams}).encode('utf-8'))
             return
 
         # Fallback 404
-        self.send_response(404)
-        self.send_header('Content-Type', 'text/plain')
-        self.end_headers()
+        self.send_cors_headers(404, 'text/plain')
         self.wfile.write(b"Not Found")
