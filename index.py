@@ -140,12 +140,12 @@ def stream(item_id):
     for group in api_data.get("streams", []):
         for item in group.get("streams", []):
             if item["id"] == clean_id:
-                # Main Feed Route Setup
+                # Main Feed Route Setup - Forces internal iframe layout rendering inside Stremio's window
                 response_streams.append({
-                    "title": f"Play on {item.get('source_tag', 'Stremio Player')}",
+                    "title": f"Play inside {item.get('source_tag', 'Stremio Player')}",
                     "url": item["iframe"],
                     "behaviorHints": {
-                        "notWebReady": True  # Force Stremio to view the embed layout block safely
+                        "notWebReady": True  # Crucial hint parameter to prevent player format crashes
                     }
                 })
                 
@@ -153,7 +153,7 @@ def stream(item_id):
                 for idx, sub in enumerate(item.get("substreams", [])):
                     sub_label = sub.get("source_tag") or sub.get("locale", "").upper() or f"Feed #{idx+2}"
                     response_streams.append({
-                        "title": f"Play on {sub_label}",
+                        "title": f"Play inside {sub_label}",
                         "url": sub["iframe"],
                         "behaviorHints": {
                             "notWebReady": True
@@ -163,6 +163,7 @@ def stream(item_id):
                 return jsonify({"streams": response_streams})
                 
     return jsonify({"streams": []})
+
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)
