@@ -2,7 +2,7 @@ from http.server import BaseHTTPRequestHandler
 import json
 import urllib.request
 
-API_ENDPOINT = "https://streamic.st"
+API_ENDPOINT = "https://streamic.st/api/getEvents.php"
 
 # 1. Define the Stremio Manifest JSON structure
 MANIFEST = {
@@ -47,22 +47,28 @@ class handler(BaseHTTPRequestHandler):
             self.wfile.write(json.dumps(MANIFEST).encode('utf-8'))
             return
 
-        # 3. Serve Catalog JSON (Updated to handle .json endings sent by Stremio)
+        # 3. Serve Catalog JSON (With clean empty countryCode checks)
         elif path.startswith("/catalog/tv/live_sports_catalog"):
             events = fetch_sports_events()
             metas = []
             
-            # Map events safely
             if isinstance(events, list):
                 for event in events:
                     if not isinstance(event, dict):
                         continue
-                    country = str(event.get("countryCode", "us")).upper()
+                    
+                    # Fix: If countryCode is missing or empty, apply a universal sports icon placeholder
+                    raw_country = event.get("countryCode")
+                    if raw_country and str(raw_country).strip():
+                        poster_url = f"https://flagsapi.com{str(raw_country).strip().upper()}/flat/64.png"
+                    else:
+                        poster_url = "https://flaticon.com"
+
                     metas.append({
                         "id": f"live_sport:{event.get('id')}",
                         "type": "tv",
                         "name": f"{event.get('title')} ({event.get('league') or event.get('category') or 'Live'})",
-                        "poster": f"https://flagsapi.com{country}/flat/64.png",
+                        "poster": poster_url,
                         "description": f"Live match. Event ID: {event.get('id')}"
                     })
                 
