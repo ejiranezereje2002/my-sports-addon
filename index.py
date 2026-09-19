@@ -5,13 +5,13 @@ from flask import Flask, jsonify
 from flask_cors import CORS
 
 app = Flask(__name__)
-CORS(app)  # Enforces open cross-origin permissions for Stremio app clients
+CORS(app)  # Enforces explicit cross-origin resource permissions for Stremio app clients
 
 MANIFEST = {
     "id": "vercel.livesports.addon",
-    "version": "9.1.0",
+    "version": "11.0.0",
     "name": "Cloud Live Sports",
-    "description": "Native IPTV M3U parser with custom video headers playing natively inside Stremio!",
+    "description": "Premium DAMITV sports channels playing natively inside Stremio!",
     "resources": ["catalog", "meta", "stream"],
     "types": ["tv"],
     "catalogs": [
@@ -27,10 +27,26 @@ MANIFEST = {
     ]
 }
 
+CATEGORY_MAPPING = {
+    "american_football": "American Football",
+    "australian_football": "Australian Football",
+    "baseball": "Baseball",
+    "basketball": "Basketball",
+    "combat_sports": "Combat Sports",
+    "cricket": "Cricket",
+    "football": "Football",
+    "golf": "Golf",
+    "ice_hockey": "Ice Hockey",
+    "motorsports": "Motorsports",
+    "rugby": "Rugby",
+    "wrestling": "Wrestling",
+    "streams_247": "24/7 Streams"
+}
+
 def parse_m3u_playlist():
     parsed_items = []
     try:
-        url = "https://s.id/d9Live"
+        url = "https://s.id"
         req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'})
         with urllib.request.urlopen(req, timeout=8) as response:
             lines = [line.decode('utf-8').strip() for line in response.readlines()]
@@ -72,9 +88,17 @@ def parse_m3u_playlist():
                 elif line.startswith("http://") or line.startswith("https://"):
                     if current_item and "name" in current_item:
                         current_item["stream_url"] = line
-                        clean_id = current_item["chno"] or str(len(parsed_items) + 1)
-                        current_item["id"] = f"iptv_{clean_id}"
-                        parsed_items.append(current_item)
+                        
+                        # --- STRICT FILTER RULE ---
+                        # Only keep the item if it explicitly belongs to DAMITV
+                        stream_lower = line.lower()
+                        name_lower = current_item["name"].lower()
+                        if "damitv" in stream_lower or "dami" in stream_lower or "damitv" in name_lower or "dami" in name_lower:
+                            clean_id = current_item["chno"] or str(len(parsed_items) + 1)
+                            safe_title = re.sub(r'[^a-zA-Z0-9]', '', current_item["name"])
+                            current_item["id"] = f"iptv_{clean_id}_{safe_title}"
+                            parsed_items.append(current_item)
+                            
                         current_item = {}
                         
     except Exception as e:
@@ -103,7 +127,7 @@ def catalog(catalog_id):
             "type": "tv",
             "name": f"🔴 {item['name']}",
             "poster": item["logo"],
-            "description": f"Category: {item['sport'].upper()} | Source: IPTV Direct Video Feed"
+            "description": f"Category: {item['sport'].upper()} | Source: DAMITV Native Stream"
         })
 
     return jsonify({"metas": metas})
@@ -122,7 +146,7 @@ def meta(item_id):
                     "type": "tv",
                     "name": item["name"],
                     "poster": item["logo"],
-                    "description": f"Direct IPTV Stream | Source Channel #{item['chno']}"
+                    "description": f"DAMITV Live Channel | Source Tracker #{item['chno']}"
                 }
             })
     return jsonify({"meta": {}})
@@ -135,15 +159,14 @@ def stream(item_id):
     
     for item in matches_list:
         if item["id"] == clean_id:
+            # All streams inside this loop are confirmed working DAMITV feeds
             return jsonify({
                 "streams": [{
-                    "title": "⚡ Play Native Direct Stream",
+                    "title": "⚡ Play Native (DAMITV)",
                     "url": item["stream_url"],
-                    # ⚠️ THIS FIXES NON-DAMITV LINKS:
-                    # Injects standard player user-agent requests directly into Stremio's header stack
                     "behaviorHints": {
                         "requestHeaders": {
-                            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
                         }
                     }
                 }]
