@@ -2,9 +2,8 @@ from http.server import BaseHTTPRequestHandler
 import json
 import urllib.request
 
-API_ENDPOINT = "https://streamic.st/api/getEvents.php"
+API_ENDPOINT = "https://streamic.st"
 
-# 1. Define the Stremio Manifest JSON structure
 MANIFEST = {
     "id": "community.vercelsportsaddonpython",
     "version": "1.0.0",
@@ -38,8 +37,8 @@ class handler(BaseHTTPRequestHandler):
     def do_GET(self):
         path = self.path
 
-        # 2. Serve Manifest JSON
-        if path == "/manifest.json" or path == "/":
+        # 1. Handle Stremio Manifest Requests
+        if "/manifest.json" in path or path == "/":
             self.send_response(200)
             self.send_header('Content-Type', 'application/json')
             self.send_header('Access-Control-Allow-Origin', '*')
@@ -47,8 +46,8 @@ class handler(BaseHTTPRequestHandler):
             self.wfile.write(json.dumps(MANIFEST).encode('utf-8'))
             return
 
-        # 3. Serve Catalog JSON (With clean empty countryCode checks)
-        elif path.startswith("/catalog/tv/live_sports_catalog"):
+        # 2. Handle Stremio Catalog Requests (Fixed string tracking pattern)
+        elif "/catalog/tv/live_sports_catalog" in path:
             events = fetch_sports_events()
             metas = []
             
@@ -57,7 +56,11 @@ class handler(BaseHTTPRequestHandler):
                     if not isinstance(event, dict):
                         continue
                     
-                    # Fix: If countryCode is missing or empty, apply a universal sports icon placeholder
+                    event_id = str(event.get("id", ""))
+                    if not event_id:
+                        continue
+
+                    # Validate flag icons safely
                     raw_country = event.get("countryCode")
                     if raw_country and str(raw_country).strip():
                         poster_url = f"https://flagsapi.com{str(raw_country).strip().upper()}/flat/64.png"
@@ -65,11 +68,11 @@ class handler(BaseHTTPRequestHandler):
                         poster_url = "https://flaticon.com"
 
                     metas.append({
-                        "id": f"live_sport:{event.get('id')}",
+                        "id": f"live_sport:{event_id}",
                         "type": "tv",
-                        "name": f"{event.get('title')} ({event.get('league') or event.get('category') or 'Live'})",
+                        "name": f"{event.get('title', 'Live Match')} ({event.get('league') or event.get('category') or 'Sports'})",
                         "poster": poster_url,
-                        "description": f"Live match. Event ID: {event.get('id')}"
+                        "description": f"Live sports stream. Event ID: {event_id}"
                     })
                 
             self.send_response(200)
@@ -79,10 +82,13 @@ class handler(BaseHTTPRequestHandler):
             self.wfile.write(json.dumps({"metas": metas}).encode('utf-8'))
             return
 
-        # 4. Serve Stream JSON
+        # 3. Handle Stremio Stream Requests
         elif "/stream/tv/" in path:
             try:
                 stream_id = path.split("/stream/tv/")[-1].replace(".json", "")
+                # Clean nested parameters if present
+                if "?" in stream_id:
+                    stream_id = stream_id.split("?")[0]
                 target_id = stream_id.replace("live_sport:", "")
             except:
                 target_id = ""
