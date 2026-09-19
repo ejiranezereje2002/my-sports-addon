@@ -5,11 +5,11 @@ from flask import Flask, jsonify
 from flask_cors import CORS
 
 app = Flask(__name__)
-CORS(app)  # Enforces cross-origin permissions so Stremio can read the data fields
+CORS(app)  # Enforces explicit cross-origin permissions for Stremio app clients
 
 MANIFEST = {
     "id": "vercel.livesports.addon",
-    "version": "4.2.0",
+    "version": "4.3.0",
     "name": "Cloud Live Sports",
     "description": "Multi-sport event directories running natively inside Stremio!",
     "resources": ["catalog", "meta", "stream"],
@@ -73,7 +73,6 @@ def catalog(catalog_id):
     for group in api_data.get("streams", []):
         category = group.get("category", "Sports")
         
-        # Verify requested target catalog mapping parameter rules
         if clean_catalog_id != "live_now" and category != CATEGORY_MAPPING.get(clean_catalog_id):
             continue
 
@@ -82,14 +81,14 @@ def catalog(catalog_id):
             ends = item.get("ends_at", 0)
             is_always_live = item.get("always_live", 0) == 1 or group.get("always_live") is True
             
-            # FAULT-TOLERANT TIME CHECK:
-            # We add a 4-hour pre-buffer window so upcoming games scheduled for today 
-            # show up early on your dashboard, instead of keeping the rows empty.
-            is_live = is_always_live or ((starts - 14400) <= current_time <= (ends + 14400))
-
+            # Smart timeline checks
+            is_live = is_always_live or (starts <= current_time <= ends)
+            
+            # If the user clicks "Live Now", only show active items
             if clean_catalog_id == "live_now" and not is_live:
                 continue
 
+            # Prefix matches so you can see if they are live or scheduled for later
             status_prefix = "🔴 LIVE: " if is_live else "⏳ UPCOMING: "
             if clean_catalog_id == "live_now" or is_always_live:
                 status_prefix = ""
@@ -146,7 +145,7 @@ def stream(item_id):
                     "title": f"Play on {item.get('source_tag', 'Stremio Player')}",
                     "url": item["iframe"],
                     "behaviorHints": {
-                        "notWebReady": True  # Open the embed safely inside Stremio's layout frame
+                        "notWebReady": True
                     }
                 })
                 
