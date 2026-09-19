@@ -54,15 +54,17 @@ class handler(BaseHTTPRequestHandler):
         self.send_cors_headers(200)
 
     def do_GET(self):
-        path = self.path
+        # Normalize and unquote path inputs to prevent character encoding mismatch issues (%3A vs :)
+        path = urllib.request.urlsplit(self.path).path
+        path = urllib.request.unquote(path)
 
-        # 1. Manifest Endpoint
+        # 1. Manifest Request Handler
         if "manifest.json" in path or path == "/":
             self.send_cors_headers(200)
             self.wfile.write(json.dumps(MANIFEST).encode('utf-8'))
             return
 
-        # 2. Catalog Endpoint
+        # 2. Catalog Request Handler
         elif "live_sports_catalog" in path:
             events = fetch_sports_events()
             metas = []
@@ -94,21 +96,18 @@ class handler(BaseHTTPRequestHandler):
             self.wfile.write(json.dumps({"metas": metas}).encode('utf-8'))
             return
 
-        # 3. Meta Interception Endpoint (Robust pattern check)
+        # 3. Meta Request Handler (With adaptive membership looping checks)
         elif "/meta/tv/" in path or "live_sport:" in path and "/stream/" not in path:
-            try:
-                # Extract target id cleanly regardless of formatting variants
-                clean_segment = path.split("/")[-1].replace(".json", "")
-                if "?" in clean_segment:
-                    clean_segment = clean_segment.split("?")[0]
-                target_id = clean_segment.replace("live_sport:", "")
-            except:
-                target_id = ""
-
             events = fetch_sports_events()
             matched_event = None
+            target_id = ""
+
             if isinstance(events, list):
-                matched_event = next((e for e in events if isinstance(e, dict) and str(e.get("id")) == target_id), None)
+                for event in events:
+                    if isinstance(event, dict) and str(event.get("id")) in path:
+                        matched_event = event
+                        target_id = str(event.get("id"))
+                        break
 
             meta_data = {"meta": {}}
             if matched_event:
@@ -131,20 +130,16 @@ class handler(BaseHTTPRequestHandler):
             self.wfile.write(json.dumps(meta_data).encode('utf-8'))
             return
 
-        # 4. Stream Link Interception Endpoint
+        # 4. Stream Link Request Handler (Rewritten loop to parse any stream path flawlessly)
         elif "/stream/" in path:
-            try:
-                clean_segment = path.split("/")[-1].replace(".json", "")
-                if "?" in clean_segment:
-                    clean_segment = clean_segment.split("?")[0]
-                target_id = clean_segment.replace("live_sport:", "")
-            except:
-                target_id = ""
-
             events = fetch_sports_events()
             matched_event = None
+
             if isinstance(events, list):
-                matched_event = next((e for e in events if isinstance(e, dict) and str(e.get("id")) == target_id), None)
+                for event in events:
+                    if isinstance(event, dict) and str(event.get("id")) in path:
+                        matched_event = event
+                        break
                 
             streams = []
 
@@ -168,6 +163,6 @@ class handler(BaseHTTPRequestHandler):
             self.wfile.write(json.dumps({"streams": streams}).encode('utf-8'))
             return
 
-        # Fallback container block
+        # Fallback empty metrics block
         self.send_cors_headers(200)
         self.wfile.write(json.dumps({"metas": []}).encode('utf-8'))
