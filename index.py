@@ -2,7 +2,7 @@ from http.server import BaseHTTPRequestHandler
 import json
 import urllib.request
 
-API_ENDPOINT = "https://streamic.st"
+API_ENDPOINT = "https://streamic.st/api/getEvents.php"
 
 MANIFEST = {
     "id": "community.vercelsportsaddonpython",
@@ -42,21 +42,20 @@ class handler(BaseHTTPRequestHandler):
         self.send_header('Access-Control-Allow-Headers', '*')
         self.end_headers()
 
-    # 1. Handle critical OPTIONS request checkpoints required by Stremio
     def do_OPTIONS(self):
         self.send_cors_headers(200)
 
     def do_GET(self):
         path = self.path
 
-        # 2. Serve Manifest JSON
-        if "/manifest.json" in path or path == "/":
+        # 1. Catch Manifest Requests
+        if "manifest.json" in path or path == "/":
             self.send_cors_headers(200)
             self.wfile.write(json.dumps(MANIFEST).encode('utf-8'))
             return
 
-        # 3. Serve Catalog JSON
-        elif "/catalog/tv/live_sports_catalog" in path:
+        # 2. Catch Catalog Requests (Sub-string search bypasses Stremio filter paths)
+        elif "live_sports_catalog" in path:
             events = fetch_sports_events()
             metas = []
             
@@ -87,13 +86,14 @@ class handler(BaseHTTPRequestHandler):
             self.wfile.write(json.dumps({"metas": metas}).encode('utf-8'))
             return
 
-        # 4. Serve Stream JSON
-        elif "/stream/tv/" in path:
+        # 3. Catch Stream Requests
+        elif "/stream/" in path:
             try:
-                stream_id = path.split("/stream/tv/")[-1].replace(".json", "")
-                if "?" in stream_id:
-                    stream_id = stream_id.split("?")[0]
-                target_id = stream_id.replace("live_sport:", "")
+                # Clean up path to find the match item ID safely
+                clean_path = path.split("/stream/tv/")[-1].replace(".json", "")
+                if "?" in clean_path:
+                    clean_path = clean_path.split("?")[0]
+                target_id = clean_path.replace("live_sport:", "")
             except:
                 target_id = ""
 
@@ -124,6 +124,6 @@ class handler(BaseHTTPRequestHandler):
             self.wfile.write(json.dumps({"streams": streams}).encode('utf-8'))
             return
 
-        # Fallback 404
-        self.send_cors_headers(404, 'text/plain')
-        self.wfile.write(b"Not Found")
+        # 4. Global Fallback Object Container (Crucial for preventing EmptyContent bugs)
+        self.send_cors_headers(200)
+        self.wfile.write(json.dumps({"metas": []}).encode('utf-8'))
