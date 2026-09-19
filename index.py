@@ -9,9 +9,9 @@ CORS(app)  # Enforces explicit cross-origin permissions for Stremio app clients
 
 MANIFEST = {
     "id": "vercel.livesports.addon",
-    "version": "4.3.0",
+    "version": "5.0.0",
     "name": "Cloud Live Sports",
-    "description": "Multi-sport event directories running natively inside Stremio!",
+    "description": "Multi-sport live streaming streams playing natively inside Stremio!",
     "resources": ["catalog", "meta", "stream"],
     "types": ["tv"],
     "catalogs": [
@@ -50,7 +50,7 @@ CATEGORY_MAPPING = {
 
 def fetch_api_data():
     try:
-        url = "https://ppv.st"
+        url = "https://api.ppv.st/api/streams"
         req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
         with urllib.request.urlopen(req) as response:
             return json.loads(response.read().decode('utf-8'))
@@ -73,6 +73,7 @@ def catalog(catalog_id):
     for group in api_data.get("streams", []):
         category = group.get("category", "Sports")
         
+        # Verify requested target catalog mapping parameter rules
         if clean_catalog_id != "live_now" and category != CATEGORY_MAPPING.get(clean_catalog_id):
             continue
 
@@ -81,14 +82,13 @@ def catalog(catalog_id):
             ends = item.get("ends_at", 0)
             is_always_live = item.get("always_live", 0) == 1 or group.get("always_live") is True
             
-            # Smart timeline checks
+            # Live state window checks
             is_live = is_always_live or (starts <= current_time <= ends)
             
-            # If the user clicks "Live Now", only show active items
+            # If browsing the 'Live Now' view row block, strictly bypass non-live events
             if clean_catalog_id == "live_now" and not is_live:
                 continue
 
-            # Prefix matches so you can see if they are live or scheduled for later
             status_prefix = "🔴 LIVE: " if is_live else "⏳ UPCOMING: "
             if clean_catalog_id == "live_now" or is_always_live:
                 status_prefix = ""
@@ -98,7 +98,7 @@ def catalog(catalog_id):
                 "type": "tv",
                 "name": f"{status_prefix}{item['name']}",
                 "poster": item.get("poster", ""),
-                "description": f"Sport: {category} | Channel/Source: {item.get('source_tag', 'Live Broadcast')}"
+                "description": f"Sport: {category} | Source: {item.get('source_tag', 'Live Broadcast')}"
             })
 
     return jsonify({"metas": metas})
@@ -145,7 +145,7 @@ def stream(item_id):
                     "title": f"Play on {item.get('source_tag', 'Stremio Player')}",
                     "url": item["iframe"],
                     "behaviorHints": {
-                        "notWebReady": True
+                        "notWebReady": True  # Force Stremio to view the embed layout block safely
                     }
                 })
                 
