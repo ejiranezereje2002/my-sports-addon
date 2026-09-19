@@ -1,8 +1,9 @@
 from http.server import BaseHTTPRequestHandler
 import json
 import urllib.request
+import base64
 
-API_ENDPOINT = "https://streamic.st/api/getEvents.php"
+API_ENDPOINT = "https://streamic.st"
 
 MANIFEST = {
     "id": "community.vercelsportsaddonpython",
@@ -28,9 +29,21 @@ def fetch_sports_events():
             headers={'User-Agent': 'Mozilla/5.0'}
         )
         with urllib.request.urlopen(req, timeout=5) as response:
-            return json.loads(response.read().decode('utf-8'))
+            raw_data = response.read()
+            
+            # Step 1: Decode your API's base64 encrypted payload structure visible in screenshot 2
+            try:
+                decoded_bytes = base64.b64decode(raw_data.strip())
+                # Handle possible Byte Order Mark (BOM) patterns gracefully
+                decoded_str = decoded_bytes.decode('utf-8-sig').strip()
+                return json.loads(decoded_str)
+            except Exception as decode_err:
+                # Fallback: if it was already clear JSON, try reading directly
+                print(f"Base64 fallback active: {decode_err}")
+                return json.loads(raw_data.decode('utf-8-sig'))
+                
     except Exception as e:
-        print(f"Error fetching API data: {e}")
+        print(f"Error fetching/decoding API data: {e}")
         return []
 
 class handler(BaseHTTPRequestHandler):
@@ -54,7 +67,7 @@ class handler(BaseHTTPRequestHandler):
             self.wfile.write(json.dumps(MANIFEST).encode('utf-8'))
             return
 
-        # 2. Catch Catalog Requests (Sub-string search bypasses Stremio filter paths)
+        # 2. Catch Catalog Requests with decoding sequence
         elif "live_sports_catalog" in path:
             events = fetch_sports_events()
             metas = []
@@ -89,10 +102,9 @@ class handler(BaseHTTPRequestHandler):
         # 3. Catch Stream Requests
         elif "/stream/" in path:
             try:
-                # Clean up path to find the match item ID safely
                 clean_path = path.split("/stream/tv/")[-1].replace(".json", "")
                 if "?" in clean_path:
-                    clean_path = clean_path.split("?")[0]
+                    clean_path = clean_path.split("?")
                 target_id = clean_path.replace("live_sport:", "")
             except:
                 target_id = ""
@@ -124,6 +136,6 @@ class handler(BaseHTTPRequestHandler):
             self.wfile.write(json.dumps({"streams": streams}).encode('utf-8'))
             return
 
-        # 4. Global Fallback Object Container (Crucial for preventing EmptyContent bugs)
+        # 4. Safety structural catch
         self.send_cors_headers(200)
         self.wfile.write(json.dumps({"metas": []}).encode('utf-8'))
