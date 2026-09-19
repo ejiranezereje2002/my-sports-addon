@@ -3,7 +3,7 @@ import json
 import urllib.request
 import base64
 
-API_ENDPOINT = "https://streamic.st"
+API_ENDPOINT = "https://streamic.st/api/getEvents.php"
 
 MANIFEST = {
     "id": "community.vercelsportsaddonpython",
