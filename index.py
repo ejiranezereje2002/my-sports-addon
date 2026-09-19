@@ -10,7 +10,7 @@ MANIFEST = {
     "version": "1.0.0",
     "name": "Live Sports Hub",
     "description": "Real-time live sports streams aggregated from Streamic API.",
-    "resources": ["catalog", "meta", "stream"], # FIX: Added "meta" resource requirement
+    "resources": ["catalog", "meta", "stream"], 
     "types": ["tv"],
     "catalogs": [
         {
@@ -30,7 +30,6 @@ def fetch_sports_events():
         )
         with urllib.request.urlopen(req, timeout=8) as response:
             raw_data = response.read()
-            
             try:
                 decoded_bytes = base64.b64decode(raw_data.strip())
                 decoded_str = decoded_bytes.decode('utf-8-sig').strip()
@@ -38,7 +37,6 @@ def fetch_sports_events():
             except Exception as decode_err:
                 print(f"Direct JSON reading active: {decode_err}")
                 return json.loads(raw_data.decode('utf-8-sig'))
-                
     except Exception as e:
         print(f"Error fetching API data: {e}")
         return []
@@ -96,13 +94,14 @@ class handler(BaseHTTPRequestHandler):
             self.wfile.write(json.dumps({"metas": metas}).encode('utf-8'))
             return
 
-        # 3. FIX: New Meta Endpoint (Required by Live TV types to pass video link queries)
-        elif "/meta/tv/" in path:
+        # 3. Meta Interception Endpoint (Robust pattern check)
+        elif "/meta/tv/" in path or "live_sport:" in path and "/stream/" not in path:
             try:
-                clean_path = path.split("/meta/tv/")[-1].replace(".json", "")
-                if "?" in clean_path:
-                    clean_path = clean_path.split("?")[0]
-                target_id = clean_path.replace("live_sport:", "")
+                # Extract target id cleanly regardless of formatting variants
+                clean_segment = path.split("/")[-1].replace(".json", "")
+                if "?" in clean_segment:
+                    clean_segment = clean_segment.split("?")[0]
+                target_id = clean_segment.replace("live_sport:", "")
             except:
                 target_id = ""
 
@@ -132,13 +131,13 @@ class handler(BaseHTTPRequestHandler):
             self.wfile.write(json.dumps(meta_data).encode('utf-8'))
             return
 
-        # 4. Stream Link Endpoint
+        # 4. Stream Link Interception Endpoint
         elif "/stream/" in path:
             try:
-                clean_path = path.split("/stream/tv/")[-1].replace(".json", "")
-                if "?" in clean_path:
-                    clean_path = clean_path.split("?")[0]
-                target_id = clean_path.replace("live_sport:", "")
+                clean_segment = path.split("/")[-1].replace(".json", "")
+                if "?" in clean_segment:
+                    clean_segment = clean_segment.split("?")[0]
+                target_id = clean_segment.replace("live_sport:", "")
             except:
                 target_id = ""
 
@@ -169,6 +168,6 @@ class handler(BaseHTTPRequestHandler):
             self.wfile.write(json.dumps({"streams": streams}).encode('utf-8'))
             return
 
-        # Fallback structural block
+        # Fallback container block
         self.send_cors_headers(200)
         self.wfile.write(json.dumps({"metas": []}).encode('utf-8'))
