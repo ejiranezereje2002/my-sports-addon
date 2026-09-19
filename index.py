@@ -36,7 +36,6 @@ def fetch_sports_events():
 
 class handler(BaseHTTPRequestHandler):
     def do_GET(self):
-        # Handle CORS preflight & routing headers
         path = self.path
 
         # 2. Serve Manifest JSON
@@ -48,20 +47,24 @@ class handler(BaseHTTPRequestHandler):
             self.wfile.write(json.dumps(MANIFEST).encode('utf-8'))
             return
 
-        # 3. Serve Catalog JSON
+        # 3. Serve Catalog JSON (Updated to handle .json endings sent by Stremio)
         elif path.startswith("/catalog/tv/live_sports_catalog"):
             events = fetch_sports_events()
             metas = []
             
-            for event in events:
-                country = str(event.get("countryCode", "us")).upper()
-                metas.append({
-                    "id": f"live_sport:{event.get('id')}",
-                    "type": "tv",
-                    "name": f"{event.get('title')} ({event.get('league') or event.get('category') or 'Live'})",
-                    "poster": f"https://flagsapi.com{country}/flat/64.png",
-                    "description": f"Live match. Event ID: {event.get('id')}"
-                })
+            # Map events safely
+            if isinstance(events, list):
+                for event in events:
+                    if not isinstance(event, dict):
+                        continue
+                    country = str(event.get("countryCode", "us")).upper()
+                    metas.append({
+                        "id": f"live_sport:{event.get('id')}",
+                        "type": "tv",
+                        "name": f"{event.get('title')} ({event.get('league') or event.get('category') or 'Live'})",
+                        "poster": f"https://flagsapi.com{country}/flat/64.png",
+                        "description": f"Live match. Event ID: {event.get('id')}"
+                    })
                 
             self.send_response(200)
             self.send_header('Content-Type', 'application/json')
@@ -72,7 +75,6 @@ class handler(BaseHTTPRequestHandler):
 
         # 4. Serve Stream JSON
         elif "/stream/tv/" in path:
-            # Extract stream id from path (e.g., /stream/tv/live_sport:123.json)
             try:
                 stream_id = path.split("/stream/tv/")[-1].replace(".json", "")
                 target_id = stream_id.replace("live_sport:", "")
@@ -80,7 +82,10 @@ class handler(BaseHTTPRequestHandler):
                 target_id = ""
 
             events = fetch_sports_events()
-            matched_event = next((e for e in events if str(e.get("id")) == target_id), None)
+            matched_event = None
+            if isinstance(events, list):
+                matched_event = next((e for e in events if isinstance(e, dict) and str(e.get("id")) == target_id), None)
+                
             streams = []
 
             if matched_event and "_embeds" in matched_event:
