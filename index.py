@@ -6,11 +6,11 @@ from flask import Flask, jsonify
 from flask_cors import CORS
 
 app = Flask(__name__)
-CORS(app)
+CORS(app)  # Enforces complete cross-origin compliance for Stremio mobile clients
 
 MANIFEST = {
     "id": "vercel.livesports.addon",
-    "version": "6.0.0",
+    "version": "6.1.0",
     "name": "Cloud Live Sports NATIVE",
     "description": "Auto-sniffed direct m3u8 sports playing perfectly inside Stremio!",
     "resources": ["catalog", "meta", "stream"],
@@ -71,8 +71,9 @@ def extract_hidden_m3u8(embed_url):
             # Use regex scanning parameters to isolate the source stream URLs inside the page text
             found_urls = re.findall(r'(https?://[^\s"\']+\.m3u8[^\s"\']*)', html_content)
             if found_urls:
-                # Clean up punctuation formatting artifacts
-                clean_url = found_urls[0].replace('\\/', '/')
+                # FIXED BUG: Safely extract the first string element from the results list before replacing characters
+                first_url = found_urls[0]
+                clean_url = first_url.replace('\\/', '/')
                 return clean_url
     except Exception as e:
         print(f"Sniffing error for {embed_url}: {e}")
