@@ -3,15 +3,14 @@ import json
 import urllib.request
 import base64
 
-# FIX: Added the missing /api/getEvents.php path
-API_ENDPOINT = "https://streamic.st/api/getEvents.php"
+API_ENDPOINT = "https://streamic.st"
 
 MANIFEST = {
     "id": "community.vercelsportsaddonpython",
     "version": "1.0.0",
     "name": "Live Sports Hub",
     "description": "Real-time live sports streams aggregated from Streamic API.",
-    "resources": ["catalog", "stream"],
+    "resources": ["catalog", "meta", "stream"], # FIX: Added "meta" resource requirement
     "types": ["tv"],
     "catalogs": [
         {
@@ -32,7 +31,6 @@ def fetch_sports_events():
         with urllib.request.urlopen(req, timeout=8) as response:
             raw_data = response.read()
             
-            # Decode the base64 dynamic stream payload structure
             try:
                 decoded_bytes = base64.b64decode(raw_data.strip())
                 decoded_str = decoded_bytes.decode('utf-8-sig').strip()
@@ -60,13 +58,13 @@ class handler(BaseHTTPRequestHandler):
     def do_GET(self):
         path = self.path
 
-        # Catch Manifest Routing
+        # 1. Manifest Endpoint
         if "manifest.json" in path or path == "/":
             self.send_cors_headers(200)
             self.wfile.write(json.dumps(MANIFEST).encode('utf-8'))
             return
 
-        # Catch Catalog Rows
+        # 2. Catalog Endpoint
         elif "live_sports_catalog" in path:
             events = fetch_sports_events()
             metas = []
@@ -98,7 +96,43 @@ class handler(BaseHTTPRequestHandler):
             self.wfile.write(json.dumps({"metas": metas}).encode('utf-8'))
             return
 
-        # Catch Video Feeds
+        # 3. FIX: New Meta Endpoint (Required by Live TV types to pass video link queries)
+        elif "/meta/tv/" in path:
+            try:
+                clean_path = path.split("/meta/tv/")[-1].replace(".json", "")
+                if "?" in clean_path:
+                    clean_path = clean_path.split("?")[0]
+                target_id = clean_path.replace("live_sport:", "")
+            except:
+                target_id = ""
+
+            events = fetch_sports_events()
+            matched_event = None
+            if isinstance(events, list):
+                matched_event = next((e for e in events if isinstance(e, dict) and str(e.get("id")) == target_id), None)
+
+            meta_data = {"meta": {}}
+            if matched_event:
+                raw_country = matched_event.get("countryCode")
+                if raw_country and str(raw_country).strip():
+                    poster_url = f"https://flagsapi.com{str(raw_country).strip().upper()}/flat/64.png"
+                else:
+                    poster_url = "https://flaticon.com"
+
+                meta_data["meta"] = {
+                    "id": f"live_sport:{target_id}",
+                    "type": "tv",
+                    "name": f"{matched_event.get('title', 'Live Match')}",
+                    "poster": poster_url,
+                    "background": poster_url,
+                    "description": f"League: {matched_event.get('league', 'Unknown')} | Category: {matched_event.get('category', 'Sports')}"
+                }
+
+            self.send_cors_headers(200)
+            self.wfile.write(json.dumps(meta_data).encode('utf-8'))
+            return
+
+        # 4. Stream Link Endpoint
         elif "/stream/" in path:
             try:
                 clean_path = path.split("/stream/tv/")[-1].replace(".json", "")
@@ -135,6 +169,6 @@ class handler(BaseHTTPRequestHandler):
             self.wfile.write(json.dumps({"streams": streams}).encode('utf-8'))
             return
 
-        # Fallback structural response container
+        # Fallback structural block
         self.send_cors_headers(200)
         self.wfile.write(json.dumps({"metas": []}).encode('utf-8'))
