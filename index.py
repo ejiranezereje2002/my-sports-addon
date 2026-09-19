@@ -5,11 +5,11 @@ from flask import Flask, jsonify
 from flask_cors import CORS
 
 app = Flask(__name__)
-CORS(app)  # Enforces explicit cross-origin resource permissions for Stremio app clients
+CORS(app)  # Enforces cross-origin permissions so Stremio can read the data fields
 
 MANIFEST = {
     "id": "vercel.livesports.addon",
-    "version": "4.1.0",
+    "version": "4.2.0",
     "name": "Cloud Live Sports",
     "description": "Multi-sport event directories running natively inside Stremio!",
     "resources": ["catalog", "meta", "stream"],
@@ -73,6 +73,7 @@ def catalog(catalog_id):
     for group in api_data.get("streams", []):
         category = group.get("category", "Sports")
         
+        # Verify requested target catalog mapping parameter rules
         if clean_catalog_id != "live_now" and category != CATEGORY_MAPPING.get(clean_catalog_id):
             continue
 
@@ -81,7 +82,10 @@ def catalog(catalog_id):
             ends = item.get("ends_at", 0)
             is_always_live = item.get("always_live", 0) == 1 or group.get("always_live") is True
             
-            is_live = is_always_live or (starts <= current_time <= ends)
+            # FAULT-TOLERANT TIME CHECK:
+            # We add a 4-hour pre-buffer window so upcoming games scheduled for today 
+            # show up early on your dashboard, instead of keeping the rows empty.
+            is_live = is_always_live or ((starts - 14400) <= current_time <= (ends + 14400))
 
             if clean_catalog_id == "live_now" and not is_live:
                 continue
@@ -103,9 +107,12 @@ def catalog(catalog_id):
 @app.route('/meta/tv/<item_id>')
 @app.route('/meta/tv/<item_id>.json')
 def meta(item_id):
-    clean_id = int(item_id.replace(".json", "").replace("sport_", ""))
+    try:
+        clean_id = int(item_id.replace(".json", "").replace("sport_", ""))
+    except Exception:
+        return jsonify({"meta": {}})
+        
     api_data = fetch_api_data()
-    
     for group in api_data.get("streams", []):
         for item in group.get("streams", []):
             if item["id"] == clean_id:
@@ -123,7 +130,11 @@ def meta(item_id):
 @app.route('/stream/tv/<item_id>')
 @app.route('/stream/tv/<item_id>.json')
 def stream(item_id):
-    clean_id = int(item_id.replace(".json", "").replace("sport_", ""))
+    try:
+        clean_id = int(item_id.replace(".json", "").replace("sport_", ""))
+    except Exception:
+        return jsonify({"streams": []})
+        
     api_data = fetch_api_data()
     response_streams = []
     
@@ -135,7 +146,7 @@ def stream(item_id):
                     "title": f"Play on {item.get('source_tag', 'Stremio Player')}",
                     "url": item["iframe"],
                     "behaviorHints": {
-                        "notWebReady": True  # Force Stremio to open the embed webpage layout inside its media engine
+                        "notWebReady": True  # Open the embed safely inside Stremio's layout frame
                     }
                 })
                 
