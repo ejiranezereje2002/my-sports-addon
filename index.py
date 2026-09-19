@@ -1,178 +1,113 @@
+from http.server import BaseHTTPRequestHandler
 import json
-import re
 import urllib.request
-from flask import Flask, jsonify
-from flask_cors import CORS
 
-app = Flask(__name__)
-CORS(app)  # Enforces explicit cross-origin resource permissions for Stremio app clients
+API_ENDPOINT = "https://streamic.st"
 
+# 1. Define the Stremio Manifest JSON structure
 MANIFEST = {
-    "id": "vercel.livesports.addon",
-    "version": "11.0.0",
-    "name": "Cloud Live Sports",
-    "description": "Premium DAMITV sports channels playing natively inside Stremio!",
-    "resources": ["catalog", "meta", "stream"],
+    "id": "community.vercelsportsaddonpython",
+    "version": "1.0.0",
+    "name": "Live Sports Hub",
+    "description": "Real-time live sports streams aggregated from Streamic API.",
+    "resources": ["catalog", "stream"],
     "types": ["tv"],
     "catalogs": [
-        {"type": "tv", "id": "all_matches", "name": "🌐 All Live Matches"},
-        {"type": "tv", "id": "football", "name": "⚽ Football/Soccer"},
-        {"type": "tv", "id": "american_football", "name": "🏈 American Football"},
-        {"type": "tv", "id": "basketball", "name": "🏀 Basketball"},
-        {"type": "tv", "id": "baseball", "name": "⚾ Baseball"},
-        {"type": "tv", "id": "darts", "name": "🎯 Darts"},
-        {"type": "tv", "id": "motorsports", "name": "🏎️ Motorsports"},
-        {"type": "tv", "id": "rugby", "name": "🏉 Rugby"},
-        {"type": "tv", "id": "combat_sports", "name": "🥊 Combat/UFC"}
-    ]
-}
-
-CATEGORY_MAPPING = {
-    "american_football": "American Football",
-    "australian_football": "Australian Football",
-    "baseball": "Baseball",
-    "basketball": "Basketball",
-    "combat_sports": "Combat Sports",
-    "cricket": "Cricket",
-    "football": "Football",
-    "golf": "Golf",
-    "ice_hockey": "Ice Hockey",
-    "motorsports": "Motorsports",
-    "rugby": "Rugby",
-    "wrestling": "Wrestling",
-    "streams_247": "24/7 Streams"
-}
-
-def parse_m3u_playlist():
-    parsed_items = []
-    try:
-        url = "https://s.id"
-        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'})
-        with urllib.request.urlopen(req, timeout=8) as response:
-            lines = [line.decode('utf-8').strip() for line in response.readlines()]
-            
-            current_item = {}
-            for line in lines:
-                if line.startswith("#EXTINF:"):
-                    current_item = {}
-                    name_match = re.search(r'tvg-name="([^"]+)"', line)
-                    logo_match = re.search(r'tvg-logo="([^"]+)"', line)
-                    chno_match = re.search(r'tvg-chno="([^"]+)"', line)
-                    
-                    display_title = line.split(",")[-1] if "," in line else "Live Match"
-                    
-                    current_item["name"] = name_match.group(1) if name_match else display_title
-                    current_item["logo"] = logo_match.group(1) if logo_match else "https://1000logos.net"
-                    current_item["chno"] = chno_match.group(1) if chno_match else "0"
-                    
-                    lower_name = current_item["name"].lower()
-                    if "bundesliga" in lower_name or "premier league" in lower_name or "epl" in lower_name or "laliga" in lower_name or "serie a" in lower_name or "brasileir" in lower_name or "soccer" in lower_name:
-                        current_item["sport"] = "football"
-                    elif "american football" in lower_name or "nfl" in lower_name or "ncaa" in lower_name:
-                        current_item["sport"] = "american_football"
-                    elif "basketball" in lower_name or "nbl" in lower_name:
-                        current_item["sport"] = "basketball"
-                    elif "mlb" in lower_name or "baseball" in lower_name:
-                        current_item["sport"] = "baseball"
-                    elif "darts" in lower_name:
-                        current_item["sport"] = "darts"
-                    elif "motogp" in lower_name or "racing" in lower_name or "motorsport" in lower_name:
-                        current_item["sport"] = "motorsports"
-                    elif "rugby" in lower_name:
-                        current_item["sport"] = "rugby"
-                    elif "ufc" in lower_name or "mma" in lower_name or "wwe" in lower_name or "wrestling" in lower_name:
-                        current_item["sport"] = "combat_sports"
-                    else:
-                        current_item["sport"] = "football"
-                        
-                elif line.startswith("http://") or line.startswith("https://"):
-                    if current_item and "name" in current_item:
-                        current_item["stream_url"] = line
-                        
-                        # --- STRICT FILTER RULE ---
-                        # Only keep the item if it explicitly belongs to DAMITV
-                        stream_lower = line.lower()
-                        name_lower = current_item["name"].lower()
-                        if "damitv" in stream_lower or "dami" in stream_lower or "damitv" in name_lower or "dami" in name_lower:
-                            clean_id = current_item["chno"] or str(len(parsed_items) + 1)
-                            safe_title = re.sub(r'[^a-zA-Z0-9]', '', current_item["name"])
-                            current_item["id"] = f"iptv_{clean_id}_{safe_title}"
-                            parsed_items.append(current_item)
-                            
-                        current_item = {}
-                        
-    except Exception as e:
-        print(f"IPTV Fetch Error: {e}")
-        
-    return parsed_items
-
-@app.route('/')
-@app.route('/manifest.json')
-def manifest():
-    return jsonify(MANIFEST)
-
-@app.route('/catalog/tv/<catalog_id>')
-@app.route('/catalog/tv/<catalog_id>.json')
-def catalog(catalog_id):
-    clean_catalog_id = catalog_id.replace(".json", "")
-    matches_list = parse_m3u_playlist()
-    metas = []
-
-    for item in matches_list:
-        if clean_catalog_id != "all_matches" and item["sport"] != clean_catalog_id:
-            continue
-
-        metas.append({
-            "id": item["id"],
+        {
             "type": "tv",
-            "name": f"🔴 {item['name']}",
-            "poster": item["logo"],
-            "description": f"Category: {item['sport'].upper()} | Source: DAMITV Native Stream"
-        })
+            "id": "live_sports_catalog",
+            "name": "Live Matches"
+        }
+    ],
+    "idPrefixes": ["live_sport:"]
+}
 
-    return jsonify({"metas": metas})
+def fetch_sports_events():
+    try:
+        req = urllib.request.Request(
+            API_ENDPOINT, 
+            headers={'User-Agent': 'Mozilla/5.0'}
+        )
+        with urllib.request.urlopen(req, timeout=5) as response:
+            return json.loads(response.read().decode('utf-8'))
+    except Exception as e:
+        print(f"Error fetching API data: {e}")
+        return []
 
-@app.route('/meta/tv/<item_id>')
-@app.route('/meta/tv/<item_id>.json')
-def meta(item_id):
-    clean_id = item_id.replace(".json", "")
-    matches_list = parse_m3u_playlist()
-    
-    for item in matches_list:
-        if item["id"] == clean_id:
-            return jsonify({
-                "meta": {
-                    "id": item["id"],
-                    "type": "tv",
-                    "name": item["name"],
-                    "poster": item["logo"],
-                    "description": f"DAMITV Live Channel | Source Tracker #{item['chno']}"
-                }
-            })
-    return jsonify({"meta": {}})
+class handler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        # Handle CORS preflight & routing headers
+        path = self.path
 
-@app.route('/stream/tv/<item_id>')
-@app.route('/stream/tv/<item_id>.json')
-def stream(item_id):
-    clean_id = item_id.replace(".json", "")
-    matches_list = parse_m3u_playlist()
-    
-    for item in matches_list:
-        if item["id"] == clean_id:
-            # All streams inside this loop are confirmed working DAMITV feeds
-            return jsonify({
-                "streams": [{
-                    "title": "⚡ Play Native (DAMITV)",
-                    "url": item["stream_url"],
-                    "behaviorHints": {
-                        "requestHeaders": {
-                            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-                        }
-                    }
-                }]
-            })
+        # 2. Serve Manifest JSON
+        if path == "/manifest.json" or path == "/":
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.end_headers()
+            self.wfile.write(json.dumps(MANIFEST).encode('utf-8'))
+            return
+
+        # 3. Serve Catalog JSON
+        elif path.startswith("/catalog/tv/live_sports_catalog"):
+            events = fetch_sports_events()
+            metas = []
             
-    return jsonify({"streams": []})
+            for event in events:
+                country = str(event.get("countryCode", "us")).upper()
+                metas.append({
+                    "id": f"live_sport:{event.get('id')}",
+                    "type": "tv",
+                    "name": f"{event.get('title')} ({event.get('league') or event.get('category') or 'Live'})",
+                    "poster": f"https://flagsapi.com{country}/flat/64.png",
+                    "description": f"Live match. Event ID: {event.get('id')}"
+                })
+                
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.end_headers()
+            self.wfile.write(json.dumps({"metas": metas}).encode('utf-8'))
+            return
 
-if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000)
+        # 4. Serve Stream JSON
+        elif "/stream/tv/" in path:
+            # Extract stream id from path (e.g., /stream/tv/live_sport:123.json)
+            try:
+                stream_id = path.split("/stream/tv/")[-1].replace(".json", "")
+                target_id = stream_id.replace("live_sport:", "")
+            except:
+                target_id = ""
+
+            events = fetch_sports_events()
+            matched_event = next((e for e in events if str(e.get("id")) == target_id), None)
+            streams = []
+
+            if matched_event and "_embeds" in matched_event:
+                for embed_group in matched_event["_embeds"]:
+                    lang = embed_group.get("language", "Unknown Language")
+                    embeds_dict = embed_group.get("embeds", {})
+                    
+                    if isinstance(embeds_dict, dict):
+                        for key, option in embeds_dict.items():
+                            embed_url = option.get("embed", "")
+                            if embed_url.startswith("//"):
+                                embed_url = f"https:{embed_url}"
+                                
+                            streams.append({
+                                "title": f"[{option.get('label', 'HD')}] {lang}",
+                                "url": embed_url
+                            })
+
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.end_headers()
+            self.wfile.write(json.dumps({"streams": streams}).encode('utf-8'))
+            return
+
+        # Fallback 404
+        self.send_response(404)
+        self.send_header('Content-Type', 'text/plain')
+        self.end_headers()
+        self.wfile.write(b"Not Found")
