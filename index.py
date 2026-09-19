@@ -54,17 +54,17 @@ class handler(BaseHTTPRequestHandler):
         self.send_cors_headers(200)
 
     def do_GET(self):
-        # Normalize and unquote path inputs to prevent character encoding mismatch issues (%3A vs :)
+        # Clean path formatting
         path = urllib.request.urlsplit(self.path).path
         path = urllib.request.unquote(path)
 
-        # 1. Manifest Request Handler
+        # 1. Catch Manifest
         if "manifest.json" in path or path == "/":
             self.send_cors_headers(200)
             self.wfile.write(json.dumps(MANIFEST).encode('utf-8'))
             return
 
-        # 2. Catalog Request Handler
+        # 2. Catch Catalog Rows
         elif "live_sports_catalog" in path:
             events = fetch_sports_events()
             metas = []
@@ -96,8 +96,8 @@ class handler(BaseHTTPRequestHandler):
             self.wfile.write(json.dumps({"metas": metas}).encode('utf-8'))
             return
 
-        # 3. Meta Request Handler (With adaptive membership looping checks)
-        elif "/meta/tv/" in path or "live_sport:" in path and "/stream/" not in path:
+        # 3. Catch Meta Interception (Loops events string check)
+        elif "/meta/tv/" in path or ("live_sport:" in path and "/stream/" not in path):
             events = fetch_sports_events()
             matched_event = None
             target_id = ""
@@ -130,7 +130,7 @@ class handler(BaseHTTPRequestHandler):
             self.wfile.write(json.dumps(meta_data).encode('utf-8'))
             return
 
-        # 4. Stream Link Request Handler (Rewritten loop to parse any stream path flawlessly)
+        # 4. Catch Stream Links Interception (Flexible path locator loop)
         elif "/stream/" in path:
             events = fetch_sports_events()
             matched_event = None
@@ -163,6 +163,6 @@ class handler(BaseHTTPRequestHandler):
             self.wfile.write(json.dumps({"streams": streams}).encode('utf-8'))
             return
 
-        # Fallback empty metrics block
+        # Catch-all safety payload block
         self.send_cors_headers(200)
         self.wfile.write(json.dumps({"metas": []}).encode('utf-8'))
