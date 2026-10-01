@@ -11,7 +11,7 @@ function fetchLiveStreams() {
             method: 'GET',
             headers: {
                 'Origin': 'https://embedindia.st',
-                'Referer': 'https://embedindia.st/',
+                'Referer': 'https://embedindia.st',
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/154.0.0.0 Safari/537.36'
             }
         };
@@ -32,19 +32,19 @@ function fetchLiveStreams() {
     });
 }
 
-// 1. Define the Stremio Addon Profile (Manifest) - SWITCHED TO "movie" FOR MOBILE SUPPORT
+// 1. Define the Stremio Addon Profile (Manifest) with Multi-Type Support
 const MANIFEST = {
     "id": "org.ppvstreams.js.addon",
-    "version": "1.4.0",
+    "version": "1.4.1",
     "name": "Live PPV Sports",
     "description": "Watch live sports matches directly inside Stremio via Node.js serverless architecture",
     "resources": ["catalog", "stream"],
-    "types": ["movie"], // Changed from "tv" to force instant stream display on mobile
+    "types": ["movie", "tv"], // Supports both movie and tv formats for maximum app cross-compatibility
     "idPrefixes": ["live:"],
     "catalogs": [
         {
             "id": "live_sports_catalog",
-            "type": "movie", // Changed from "tv"
+            "type": "movie", // Matches the layout rows schema
             "name": "Live Sports Events"
         }
     ]
@@ -63,7 +63,7 @@ app.get(['/', '/manifest.json', '/api', '/api/manifest.json'], (req, res) => {
     res.status(200).json(MANIFEST);
 });
 
-// Route B: Homepage Grid Rows Catalog Handler (Switched content mapping to "movie")
+// Route B: Homepage Grid Rows Catalog Handler (Nested Parsing)
 app.get(['/catalog/:type/:id', '/catalog/:type/:id.json'], async (req, res) => {
     try {
         const rawData = await fetchLiveStreams();
@@ -81,7 +81,7 @@ app.get(['/catalog/:type/:id', '/catalog/:type/:id.json'], async (req, res) => {
                             
                             metas.push({
                                 "id": `live:${uniqueId}`,
-                                "type": "movie", // Fixed mapping content definition type attribute
+                                "type": "movie", 
                                 "name": titleName,
                                 "poster": streamObj.poster || "https://placehold.co",
                                 "description": `Sport: ${catName} | Viewers: ${streamObj.viewers || '0'}`,
@@ -99,7 +99,7 @@ app.get(['/catalog/:type/:id', '/catalog/:type/:id.json'], async (req, res) => {
     }
 });
 
-// Route C: Dynamic Player Playback Source link mapping provider
+// Route C: FIXES MOVIE PATHS FOR BOTH PHONE AND WEB CLIENT
 app.get(['/stream/:type/:id', '/stream/:type/:id.json'], async (req, res) => {
     try {
         const idParam = req.params.id || '';
