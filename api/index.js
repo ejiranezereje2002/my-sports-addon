@@ -39,12 +39,12 @@ const MANIFEST = {
     "name": "Live PPV Sports",
     "description": "Watch live sports matches directly inside Stremio via Node.js serverless architecture",
     "resources": ["catalog", "stream"],
-    "types": ["tv"],
+    "types": ["movie"],
     "idPrefixes": ["live:"],
     "catalogs": [
         {
             "id": "live_sports_catalog",
-            "type": "tv",
+            "type": "movie",
             "name": "Live Sports Events"
         }
     ]
@@ -82,7 +82,7 @@ app.get(['/catalog/:type/:id', '/catalog/:type/:id.json'], async (req, res) => {
                             
                             metas.push({
                                 "id": `live:${uniqueId}`,
-                                "type": "tv",
+                                "type": "movie",
                                 "name": titleName,
                                 "poster": streamObj.poster || "https://placehold.co",
                                 "description": `Sport: ${catName} | Viewers: ${streamObj.viewers || '0'}`,
