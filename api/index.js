@@ -2,7 +2,7 @@ const express = require('express');
 const https = require('https');
 const app = express();
 
-// Helper function to safely stream remote data layouts using native Node.js
+// Helper function to safely pull layout data using native Node.js
 function fetchLiveStreams() {
     return new Promise((resolve) => {
         const options = {
@@ -32,14 +32,14 @@ function fetchLiveStreams() {
     });
 }
 
-// 1. Define the Stremio Addon Profile (Manifest) with strict JSON Key syntax properties
+// 1. Define the Stremio Addon Profile (Manifest) with Catalog Support
 const MANIFEST = {
     "id": "org.ppvstreams.js.addon",
-    "version": "1.3.2",
+    "version": "1.3.3",
     "name": "Live PPV Sports",
     "description": "Watch live sports matches directly inside Stremio via Node.js serverless architecture",
     "resources": ["catalog", "stream"],
-    "types": ["tv", "movie"],
+    "types": ["tv"],
     "idPrefixes": ["live:"],
     "catalogs": [
         {
@@ -63,31 +63,36 @@ app.get(['/', '/manifest.json', '/api', '/api/manifest.json'], (req, res) => {
     res.status(200).json(MANIFEST);
 });
 
-// Route B: Homepage Grid Rows Catalog Handler
+// Route B: Homepage Grid Rows Catalog Handler (Nested Parsing)
 app.get(['/catalog/:type/:id', '/catalog/:type/:id.json'], async (req, res) => {
     try {
         const rawData = await fetchLiveStreams();
         const metas = [];
 
-        // Support both direct list structures or wrapping payload elements safely
-        const streamsList = Array.isArray(rawData) ? rawData : (rawData?.streams || []);
-
-        streamsList.forEach(streamObj => {
-            if (streamObj && (streamObj.uri_name || streamObj.id)) {
-                const uniqueId = streamObj.id || streamObj.uri_name;
-                const titleName = streamObj.name || streamObj.uri_name.replace(/-/g, ' ').toUpperCase();
-                const category = streamObj.category_name || "Live Match";
+        // Navigate your actual nested layout structure: data.streams -> category -> streams array
+        if (rawData && rawData.success && Array.isArray(rawData.streams)) {
+            rawData.streams.forEach(categoryObj => {
+                const catName = categoryObj.category || "Live Match";
                 
-                metas.push({
-                    "id": `live:${uniqueId}`,
-                    "type": "tv",
-                    "name": titleName,
-                    "poster": streamObj.poster || "https://placehold.co",
-                    "description": `Category: ${category} | Viewers: ${streamObj.viewers || '0'}`,
-                    "banner": streamObj.poster || ""
-                });
-            }
-        });
+                if (Array.isArray(categoryObj.streams)) {
+                    categoryObj.streams.forEach(streamObj => {
+                        if (streamObj && (streamObj.id || streamObj.uri_name)) {
+                            const uniqueId = streamObj.id || streamObj.uri_name;
+                            const titleName = streamObj.name || uniqueId.toString().toUpperCase();
+                            
+                            metas.push({
+                                "id": `live:${uniqueId}`,
+                                "type": "tv",
+                                "name": titleName,
+                                "poster": streamObj.poster || "https://placehold.co",
+                                "description": `Sport: ${catName} | Viewers: ${streamObj.viewers || '0'}`,
+                                "banner": streamObj.poster || ""
+                            });
+                        }
+                    });
+                }
+            });
+        }
 
         res.status(200).json({ "metas": metas });
     } catch (error) {
@@ -99,21 +104,22 @@ app.get(['/catalog/:type/:id', '/catalog/:type/:id.json'], async (req, res) => {
 app.get(['/stream/:type/:id', '/stream/:type/:id.json'], async (req, res) => {
     try {
         const idParam = req.params.id || '';
-        const streamIdMatch = idParam.match(/live:(.+)/);
-        if (!streamIdMatch) {
-            return res.status(200).json({ "streams": [] });
-        }
-
-        const targetId = streamIdMatch[1].replace('.json', '');
+        const cleanId = idParam.replace('live:', '').replace('.json', '');
+        
         const rawData = await fetchLiveStreams();
-        
-        const streamsList = Array.isArray(rawData) ? rawData : (rawData?.streams || []);
-        
-        // Match the stream via either direct numeric ID properties or string URL uri_names
-        const foundStream = streamsList.find(s => 
-            String(s.id) === String(targetId) || 
-            String(s.uri_name) === String(targetId)
-        );
+        let foundStream = null;
+
+        if (rawData && rawData.success && Array.isArray(rawData.streams)) {
+            for (const categoryObj of rawData.streams) {
+                if (Array.isArray(categoryObj.streams)) {
+                    foundStream = categoryObj.streams.find(s => 
+                        String(s.id) === String(cleanId) || 
+                        String(s.uri_name) === String(cleanId)
+                    );
+                    if (foundStream) break;
+                }
+            }
+        }
 
         if (!foundStream || !foundStream.iframe) {
             return res.status(200).json({ "streams": [] });
