@@ -1,8 +1,8 @@
 const https = require('https');
 
-// Helper function to safely fetch the API data using standard Node.js HTTPS
+// Helper function to safely fetch data using native node.js streaming modules
 function fetchLiveStreams() {
-    return new Promise((resolve, reject) => {
+    return new Promise((resolve) => {
         const options = {
             hostname: 'api.ppv.st',
             path: '/api/streams',
@@ -24,7 +24,7 @@ function fetchLiveStreams() {
                     resolve(null);
                 }
             });
-        }).on('error', (e) => {
+        }).on('error', () => {
             resolve(null);
         });
     });
@@ -48,18 +48,20 @@ const MANIFEST = {
     ]
 };
 
-// 2. Main Serverless Export Handler
+// 2. Main Native Serverless Handler 
 module.exports = async (req, res) => {
-    // Setup clean CORS handling parameters immediately for Stremio cross-origin lookups
+    // Setup required standard CORS parameters immediately for cross-origin lookup support
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Headers', '*');
     res.setHeader('Content-Type', 'application/json');
 
     const urlPath = req.url || '';
 
-    // Route A: Provide the Manifest profile cleanly
+    // Route A: Provide the Manifest profile smoothly 
     if (urlPath === '/' || urlPath.includes('manifest.json')) {
-        return res.status(200).json(MANIFEST);
+        res.statusCode = 200;
+        res.end(JSON.stringify(MANIFEST));
+        return;
     }
 
     // Route B: Handle the Homepage Dashboard rows displaying active games
@@ -86,9 +88,13 @@ module.exports = async (req, res) => {
                 });
             }
 
-            return res.status(200).json({ metas: metas });
+            res.statusCode = 200;
+            res.end(JSON.stringify({ metas: metas }));
+            return;
         } catch (error) {
-            return res.status(200).json({ metas: [] });
+            res.statusCode = 200;
+            res.end(JSON.stringify({ metas: [] }));
+            return;
         }
     }
 
@@ -97,10 +103,12 @@ module.exports = async (req, res) => {
         try {
             const match = urlPath.match(/live:(\d+)\.json/);
             if (!match) {
-                return res.status(200).json({ streams: [] });
+                res.statusCode = 200;
+                res.end(JSON.stringify({ streams: [] }));
+                return;
             }
 
-            const streamId = parseInt(match[1], 10);
+            const streamId = parseInt(match, 10);
             const data = await fetchLiveStreams();
             let foundStream = null;
 
@@ -114,23 +122,29 @@ module.exports = async (req, res) => {
             }
 
             if (!foundStream) {
-                return res.status(200).json({ streams: [] });
+                res.statusCode = 200;
+                res.end(JSON.stringify({ streams: [] }));
+                return;
             }
 
-            // Return stream details back to Stremio interface engine
-            return res.status(200).json({
+            res.statusCode = 200;
+            res.end(JSON.stringify({
                 streams: [
                     {
                         title: `${foundStream.name}\nSource: ${foundStream.source_tag || 'Web Player'}`,
                         externalUrl: foundStream.iframe
                     }
                 ]
-            });
+            }));
+            return;
         } catch (error) {
-            return res.status(200).json({ streams: [] });
+            res.statusCode = 200;
+            res.end(JSON.stringify({ streams: [] }));
+            return;
         }
     }
 
     // Fallback response for unhandled endpoints
-    return res.status(404).json({ error: "Not Found" });
+    res.statusCode = 404;
+    res.end(JSON.stringify({ error: "Not Found" }));
 };
