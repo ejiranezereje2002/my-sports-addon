@@ -1,180 +1,127 @@
 from http.server import BaseHTTPRequestHandler
 import json
-import urllib.request
 import re
+import urllib.request
 
-# Update: Switched base endpoint to the new M3U playlist path
-API_ENDPOINT = "https://axsp.pages.dev/playlist.txt"
-
+# 1. Define the Stremio Addon Profile (Manifest) with Catalog Support
 MANIFEST = {
-    "id": "community.vercelsportsaddonpython",
-    "version": "1.0.0",
-    "name": "Live Sports Hub",
-    "description": "Real-time live sports streams aggregated from AXSP M3U playlist.",
-    "resources": ["catalog", "meta", "stream"], 
-    "types": ["tv"],
+    "id": "org.ppvstreams.python.addon",
+    "version": "1.1.0",
+    "name": "Live PPV Sports Streams (Python)",
+    "description": "Watch live sports events mapped directly via Python serverless routing",
+    "resources": ["catalog", "stream"],
+    "types": ["tv", "movie"],
+    "idPrefixes": ["live:"],
     "catalogs": [
         {
-            "type": "tv",
             "id": "live_sports_catalog",
-            "name": "Live Matches"
+            "type": "tv",
+            "name": "Live Sports Events"
         }
-    ],
-    "idPrefixes": ["live_sport:"]
+    ]
 }
 
-def parse_m3u_playlist():
-    try:
-        req = urllib.request.Request(
-            API_ENDPOINT, 
-            headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
-        )
-        with urllib.request.urlopen(req, timeout=10) as response:
-            content = response.read().decode('utf-8', errors='ignore')
-            
-        events = []
-        current_item = None
-        
-        # Parse M3U playlist rows sequentially
-        for line in content.splitlines():
-            line = line.strip()
-            if not line:
-                continue
-                
-            if line.startswith("#EXTINF:"):
-                # Reset item tracker
-                current_item = {"headers": {}}
-                
-                # Regex parsing arrays to map properties cleanly out of line configurations
-                tvg_id_match = re.search(r'tvg-id="([^"]+)"', line)
-                logo_match = re.search(r'tvg-logo="([^"]+)"', line)
-                
-                # Capture titles located behind commas
-                title = line.split(",")[-1].strip() if "," in line else "Live Match"
-                
-                current_item["id"] = tvg_id_match.group(1) if tvg_id_match else "unknown"
-                current_item["title"] = title
-                current_item["logo"] = logo_match.group(1) if logo_match else "https://flaticon.com"
-                
-            elif line.startswith("#EXTVLCOPT:"):
-                # Store dynamic stream injection arguments (User-Agents and HTTP Referrers)
-                if current_item:
-                    if "http-user-agent=" in line:
-                        current_item["headers"]["User-Agent"] = line.split("http-user-agent=")[-1].strip()
-                    elif "http-referrer=" in line:
-                        current_item["headers"]["Referer"] = line.split("http-referrer=")[-1].strip()
-                        
-            elif line.startswith("http://") or line.startswith("https://"):
-                if current_item and current_item.get("id") != "unknown":
-                    current_item["url"] = line
-                    events.append(current_item)
-                    current_item = None
-                    
-        return events
-    except Exception as e:
-        print(f"Error parsing dynamic M3U data stream: {e}")
-        return []
-
 class handler(BaseHTTPRequestHandler):
-    def send_cors_headers(self, status_code=200, content_type='application/json'):
-        self.send_response(status_code)
-        self.send_header('Content-Type', content_type)
+    def do_GET(self):
+        url_path = self.path
+
+        # Setup required CORS headers for Stremio
+        self.send_response(200)
         self.send_header('Access-Control-Allow-Origin', '*')
-        self.send_header('Access-Control-Allow-Methods', 'GET, OPTIONS')
         self.send_header('Access-Control-Allow-Headers', '*')
+        self.send_header('Content-Type', 'application/json')
         self.end_headers()
 
-    def do_OPTIONS(self):
-        self.send_cors_headers(200)
-
-    def do_GET(self):
-        path = urllib.request.urlsplit(self.path).path
-        path = urllib.request.unquote(path)
-
-        # 1. Manifest Output Link
-        if "manifest.json" in path or path == "/":
-            self.send_cors_headers(200)
-            self.wfile.write(json.dumps(MANIFEST).encode('utf-8'))
+        # Route A: Provide the Manifest file
+        if url_path == '/' or url_path.endswith('/manifest.json'):
+            response_data = json.dumps(MANIFEST)
+            self.wfile.write(response_data.encode('utf-8'))
             return
 
-        # 2. Catalogs Data Link
-        elif "live_sports_catalog" in path:
-            events = parse_m3u_playlist()
-            metas = []
-            seen_ids = set()
-            
-            for event in events:
-                event_id = event["id"]
-                if event_id in seen_ids:
-                    continue
-                seen_ids.add(event_id)
-
-                metas.append({
-                    "id": f"live_sport:{event_id}",
-                    "type": "tv",
-                    "name": event["title"].split(" - ")[0], # Cleans server names from general cards grid view
-                    "poster": event["logo"],
-                    "description": f"Live sports stream. Channel ID: {event_id}"
-                })
+        # Route B: Handle the Homepage Dashboard Catalog
+        if '/catalog/' in url_path:
+            try:
+                # Fetch fresh API layout data
+                req = urllib.request.Request('https://api.ppv.st/api/streams')
+                req.add_header('Origin', 'https://embedindia.st')
+                req.add_header('Referer', 'https://embedindia.st')
+                req.add_header('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/154.0.0.0 Safari/537.36')
                 
-            self.send_cors_headers(200)
-            self.wfile.write(json.dumps({"metas": metas}).encode('utf-8'))
-            return
+                with urllib.request.urlopen(req) as response:
+                    data = json.loads(response.read().decode('utf-8'))
 
-        # 3. Meta Mapping Details Link
-        elif "/meta/tv/" in path or ("live_sport:" in path and "/stream/" not in path):
-            events = parse_m3u_playlist()
-            matched_event = None
-            
-            for event in events:
-                if f"live_sport:{event['id']}" in path:
-                    matched_event = event
-                    break
+                metas = []
+                if data and data.get("success") and "streams" in data:
+                    for category in data["streams"]:
+                        cat_name = category.get("category", "Live Stream")
+                        for stream_obj in category.get("streams", []):
+                            # Shape the data to match Stremio's internal UI architecture
+                            metas.append({
+                                "id": f"live:{stream_obj.get('id')}",
+                                "type": "tv",
+                                "name": stream_obj.get("name"),
+                                "poster": stream_obj.get("poster"),
+                                "description": f"Category: {cat_name} | Source: {stream_obj.get('source_tag')}",
+                                "banner": stream_obj.get("poster")
+                            })
 
-            meta_data = {"meta": {}}
-            if matched_event:
-                meta_data["meta"] = {
-                    "id": f"live_sport:{matched_event['id']}",
-                    "type": "tv",
-                    "name": matched_event["title"].split(" - ")[0],
-                    "poster": matched_event["logo"],
-                    "background": matched_event["logo"],
-                    "description": f"Streaming Options Available: {matched_event['title']}"
-                }
+                self.wfile.write(json.dumps({"metas": metas}).encode('utf-8'))
+                return
 
-            self.send_cors_headers(200)
-            self.wfile.write(json.dumps(meta_data).encode('utf-8'))
-            return
+            except Exception:
+                self.wfile.write(json.dumps({"metas": []}).encode('utf-8'))
+                return
 
-        # 4. Active Player Streams Feeds Links Interception (Groups variations under one title grid card)
-        elif "/stream/" in path:
-            events = parse_m3u_playlist()
-            streams = []
+        # Route C: Handle the dynamic stream payload mapping
+        if '/stream/' in url_path:
+            try:
+                match = re.search(r'live:(\d+)\.json', url_path)
+                if not match:
+                    self.wfile.write(json.dumps({"streams": []}).encode('utf-8'))
+                    return
+                
+                stream_id = int(match.group(1))
 
-            for event in events:
-                if f"live_sport:{event['id']}" in path:
-                    # Clean up server labels inside selectors panels menu list dynamically
-                    title_label = "Live Feed Server"
-                    if "[" in event["title"] and "]" in event["title"]:
-                        title_label = event["title"].split("[")[-1].replace("]", "").strip()
-                    elif "-" in event["title"]:
-                        title_label = event["title"].split("-")[-1].strip()
+                # Fetch fresh stream layout data
+                req = urllib.request.Request('https://api.ppv.st/api/streams')
+                req.add_header('Origin', 'https://embedindia.st')
+                req.add_header('Referer', 'https://embedindia.st')
+                req.add_header('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/154.0.0.0 Safari/537.36')
+                
+                with urllib.request.urlopen(req) as response:
+                    data = json.loads(response.read().decode('utf-8'))
 
-                    streams.append({
-                        "title": f"[{title_label}] Dynamic M3U Link",
-                        "url": event["url"],
-                        "behaviorHints": {
-                            "notout": True,
-                            "proxyHeaders": {
-                                "request": event["headers"]
-                            }
+                found_stream = None
+                if data and data.get("success") and "streams" in data:
+                    for category in data["streams"]:
+                        for stream_obj in category.get("streams", []):
+                            if stream_obj.get("id") == stream_id:
+                                found_stream = stream_obj
+                                break
+                        if found_stream:
+                            break
+
+                if not found_stream:
+                    self.wfile.write(json.dumps({"streams": []}).encode('utf-8'))
+                    return
+
+                # Send streaming info back into Stremio interface handler
+                stream_response = {
+                    "streams": [
+                        {
+                            "title": f"{found_stream.get('name')}\nSource: {found_stream.get('source_tag')}",
+                            "externalUrl": found_stream.get("iframe")
                         }
-                    })
+                    ]
+                }
+                
+                self.wfile.write(json.dumps(stream_response).encode('utf-8'))
+                return
 
-            self.send_cors_headers(200)
-            self.wfile.write(json.dumps({"streams": streams}).encode('utf-8'))
-            return
+            except Exception:
+                self.wfile.write(json.dumps({"streams": []}).encode('utf-8'))
+                return
 
-        # Global layout container fallback
-        self.send_cors_headers(200)
-        self.wfile.write(json.dumps({"metas": []}).encode('utf-8'))
+        # Fallback error response for unmatched URL structures
+        self.wfile.write(json.dumps({"error": "Not Found"}).encode('utf-8'))
+        return
