@@ -25,29 +25,23 @@ class handler(BaseHTTPRequestHandler):
     def do_GET(self):
         url_path = self.path
 
-        # Route A: Provide the Manifest file cleanly to Stremio
-        if url_path == '/' or url_path.endswith('/manifest.json') or url_path.endswith('/'):
-            self.send_response(200)
-            self.send_header('Access-Control-Allow-Origin', '*')
-            self.send_header('Access-Control-Allow-Headers', '*')
-            self.send_header('Content-Type', 'application/json')
-            self.end_headers()
-            
+        # Setup standard CORS response routing parameters immediately
+        self.send_response(200)
+        self.send_header('Access-Control-Allow-Origin', '*')
+        self.send_header('Access-Control-Allow-Headers', '*')
+        self.send_header('Content-Type', 'application/json')
+        self.end_headers()
+
+        # Route A: Flexible Manifest file check
+        if 'manifest.json' in url_path or url_path == '/' or url_path == '/api' or url_path == '/api/':
             response_data = json.dumps(MANIFEST)
             self.wfile.write(response_data.encode('utf-8'))
             return
 
         # Route B: Handle the Homepage Dashboard Catalog
         if '/catalog/' in url_path:
-            self.send_response(200)
-            self.send_header('Access-Control-Allow-Origin', '*')
-            self.send_header('Access-Control-Allow-Headers', '*')
-            self.send_header('Content-Type', 'application/json')
-            self.end_headers()
-            
             try:
-                # Fetch fresh API layout data with anti-block headers
-                req = urllib.request.Request('https://api.ppv.st/api/streams')
+                req = urllib.request.Request('https://ppv.st')
                 req.add_header('Origin', 'https://embedindia.st')
                 req.add_header('Referer', 'https://embedindia.st')
                 req.add_header('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/154.0.0.0 Safari/537.36')
@@ -77,12 +71,6 @@ class handler(BaseHTTPRequestHandler):
 
         # Route C: Handle the dynamic stream payload mapping
         if '/stream/' in url_path:
-            self.send_response(200)
-            self.send_header('Access-Control-Allow-Origin', '*')
-            self.send_header('Access-Control-Allow-Headers', '*')
-            self.send_header('Content-Type', 'application/json')
-            self.end_headers()
-            
             try:
                 match = re.search(r'live:(\d+)\.json', url_path)
                 if not match:
@@ -91,8 +79,7 @@ class handler(BaseHTTPRequestHandler):
                 
                 stream_id = int(match.group(1))
 
-                # Fetch fresh stream layout data
-                req = urllib.request.Request('https://api.ppv.st/api/streams')
+                req = urllib.request.Request('https://ppv.st')
                 req.add_header('Origin', 'https://embedindia.st')
                 req.add_header('Referer', 'https://embedindia.st')
                 req.add_header('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/154.0.0.0 Safari/537.36')
@@ -129,9 +116,6 @@ class handler(BaseHTTPRequestHandler):
                 self.wfile.write(json.dumps({"streams": []}).encode('utf-8'))
                 return
 
-        # Fallback for error handling on unmatched routes
-        self.send_response(404)
-        self.send_header('Content-Type', 'application/json')
-        self.end_headers()
-        self.wfile.write(json.dumps({"error": "Not Found"}).encode('utf-8'))
+        # Fallback response for unmatched endpoints
+        self.wfile.write(json.dumps({"error": f"Path {url_path} not found directly"}).encode('utf-8'))
         return
