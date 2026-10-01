@@ -2,7 +2,7 @@ const express = require('express');
 const https = require('https');
 const app = express();
 
-// Helper function to pull the stream JSON data cleanly using native Node.js
+// Helper function to safely stream remote data layouts using native Node.js
 function fetchLiveStreams() {
     return new Promise((resolve) => {
         const options = {
@@ -32,7 +32,7 @@ function fetchLiveStreams() {
     });
 }
 
-// Define the Stremio Manifest profile structure
+// 1. Define the Stremio Addon Profile (Manifest) with Catalog Support
 const MANIFEST = {
     id: "org.ppvstreams.js.addon",
     version: "1.2.0",
@@ -44,7 +44,7 @@ const MANIFEST = {
     catalogs: [
         {
             id: "live_sports_catalog",
-            type": "tv",
+            type: "tv",
             name": "Live Sports Events"
         }
     ]
@@ -95,7 +95,8 @@ app.get(['/catalog/:type/:id', '/catalog/:type/:id.json'], async (req, res) => {
 // Route C: Dynamic Player Playback Source link mapping provider
 app.get(['/stream/:type/:id', '/stream/:type/:id.json'], async (req, res) => {
     try {
-        const streamIdMatch = req.params.id.match(/live:(\d+)/);
+        const idParam = req.params.id || '';
+        const streamIdMatch = idParam.match(/live:(\d+)/);
         if (!streamIdMatch) {
             return res.status(200).json({ streams: [] });
         }
