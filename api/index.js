@@ -48,10 +48,10 @@ app.use((req, res, next) => {
     next();
 });
 
-// Route A: Base / Manifest endpoint - DYNAMICALLY BUILDS YOUR DROP-DOWNS FROM THE API
+// Route A: Base / Manifest endpoint - DYNAMICALLY BUILDS & SORTS YOUR DROP-DOWNS FROM THE API
 app.get(['/', '/manifest.json', '/api', '/api/manifest.json'], async (req, res) => {
-    // Default fallback options if the API lookup fails or is empty
     let dynamicGenres = ["Live Now", "Today"];
+    let sortingPool = [];
     
     try {
         const rawData = await fetchLiveStreams();
@@ -59,10 +59,30 @@ app.get(['/', '/manifest.json', '/api', '/api/manifest.json'], async (req, res) 
             rawData.streams.forEach(categoryObj => {
                 if (categoryObj && categoryObj.category) {
                     const catName = categoryObj.category.trim();
-                    // Avoid duplicating genres in our drop-down list array
-                    if (catName && !dynamicGenres.includes(catName)) {
-                        dynamicGenres.push(catName);
+                    if (!catName) return;
+
+                    // Calculate total viewer metrics across this category to inform sorting weights
+                    let totalCategoryViewers = 0;
+                    if (Array.isArray(categoryObj.streams)) {
+                        categoryObj.streams.forEach(s => {
+                            totalCategoryViewers += parseInt(s.viewers || 0, 10);
+                        });
                     }
+
+                    sortingPool.push({
+                        name: catName,
+                        viewers: totalCategoryViewers
+                    });
+                }
+            });
+
+            // SORTING ALGORITHM CONFIGURATION: Pushes categories with active live viewers to the top
+            sortingPool.sort((a, b) => b.viewers - a.viewers);
+
+            // Extract the sorted names into our final manifest category array structure
+            sortingPool.forEach(item => {
+                if (!dynamicGenres.includes(item.name)) {
+                    dynamicGenres.push(item.name);
                 }
             });
         }
@@ -73,7 +93,7 @@ app.get(['/', '/manifest.json', '/api', '/api/manifest.json'], async (req, res) 
 
     const manifest = {
         "id": "org.ppvstreams.js.addon",
-        "version": "1.6.0",
+        "version": "1.6.1",
         "name": "Live PPV Sports",
         "description": "Watch live sports matches directly inside Stremio via Node.js serverless architecture",
         "resources": ["catalog", "stream"],
@@ -88,7 +108,7 @@ app.get(['/', '/manifest.json', '/api', '/api/manifest.json'], async (req, res) 
                     {
                         "name": "genre",
                         "isRequired": false,
-                        "options": dynamicGenres // Dynamically inserted sport array elements
+                        "options": dynamicGenres
                     }
                 ]
             }
@@ -98,25 +118,29 @@ app.get(['/', '/manifest.json', '/api', '/api/manifest.json'], async (req, res) 
     res.status(200).json(manifest);
 });
 
-// Route B: Homepage Grid Rows Catalog Handler with Multi-Genre Filter Mapping
+// Route B: Homepage Grid Rows Catalog Handler with Native Query Parameter Engine
 app.get(['/catalog/:type/:id', '/catalog/:type/:id.json'], async (req, res) => {
     try {
         const rawData = await fetchLiveStreams();
         const metas = [];
 
-        // Parse optional Stremio genre filters from route parameter strings (e.g., genre=Basketball)
-        const urlParams = req.url.split('?')[1] || '';
-        const genreMatch = urlParams.match(/genre=([^&]+)/);
-        let targetGenre = genreMatch ? decodeURIComponent(genreMatch[1]) : 'Live Now';
+        // FIXED: Using URLSearchParams to safely isolate genre parameters without regex string split crashes
+        let targetGenre = 'Live Now';
+        if (req.url.includes('?')) {
+            const queryString = req.url.substring(req.url.indexOf('?'));
+            const urlParams = new URLSearchParams(queryString);
+            if (urlParams.has('genre')) {
+                targetGenre = urlParams.get('genre');
+            }
+        }
 
         if (rawData && rawData.success && Array.isArray(rawData.streams)) {
             rawData.streams.forEach(categoryObj => {
                 const catName = categoryObj.category || "Live Match";
                 
-                // Dropdown structural alignment logic filtering module
                 if (targetGenre !== "Live Now" && targetGenre !== "Today") {
                     if (catName.toLowerCase().trim() !== targetGenre.toLowerCase().trim()) {
-                        return; // Skip streaming items that do not match selected dropdown parameter fields
+                        return; 
                     }
                 }
 
@@ -152,7 +176,6 @@ app.get(['/stream/:type/:id', '/stream/:type/:id.json'], async (req, res) => {
     try {
         const idParam = req.params.id || '';
         
-        // Handle variations of incoming ID characters cleanly
         let cleanId = idParam.replace('live:', '').replace('streamed:', '').replace('.json', '');
         if (cleanId.includes('%')) {
             cleanId = decodeURIComponent(cleanId);
@@ -178,7 +201,6 @@ app.get(['/stream/:type/:id', '/stream/:type/:id.json'], async (req, res) => {
             return res.status(200).json({ "streams": [] });
         }
 
-        // Return a clean stream array layout compatible with both TV and Mobile app architectures
         res.status(200).json({
             "streams": [
                 {
