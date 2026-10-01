@@ -7,7 +7,7 @@ import urllib.request
 MANIFEST = {
     "id": "org.ppvstreams.python.addon",
     "version": "1.1.0",
-    "name": "Live PPV Sports Streams (Python)",
+    "name": "Live PPV Sports Streams",
     "description": "Watch live sports events mapped directly via Python serverless routing",
     "resources": ["catalog", "stream"],
     "types": ["tv", "movie"],
@@ -25,23 +25,28 @@ class handler(BaseHTTPRequestHandler):
     def do_GET(self):
         url_path = self.path
 
-        # Setup required CORS headers for Stremio
-        self.send_response(200)
-        self.send_header('Access-Control-Allow-Origin', '*')
-        self.send_header('Access-Control-Allow-Headers', '*')
-        self.send_header('Content-Type', 'application/json')
-        self.end_headers()
-
-        # Route A: Provide the Manifest file
-        if url_path == '/' or url_path.endswith('/manifest.json'):
+        # Route A: Provide the Manifest file cleanly to Stremio
+        if url_path == '/' or url_path.endswith('/manifest.json') or url_path.endswith('/'):
+            self.send_response(200)
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.send_header('Access-Control-Allow-Headers', '*')
+            self.send_header('Content-Type', 'application/json')
+            self.end_headers()
+            
             response_data = json.dumps(MANIFEST)
             self.wfile.write(response_data.encode('utf-8'))
             return
 
         # Route B: Handle the Homepage Dashboard Catalog
         if '/catalog/' in url_path:
+            self.send_response(200)
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.send_header('Access-Control-Allow-Headers', '*')
+            self.send_header('Content-Type', 'application/json')
+            self.end_headers()
+            
             try:
-                # Fetch fresh API layout data
+                # Fetch fresh API layout data with anti-block headers
                 req = urllib.request.Request('https://api.ppv.st/api/streams')
                 req.add_header('Origin', 'https://embedindia.st')
                 req.add_header('Referer', 'https://embedindia.st')
@@ -55,7 +60,6 @@ class handler(BaseHTTPRequestHandler):
                     for category in data["streams"]:
                         cat_name = category.get("category", "Live Stream")
                         for stream_obj in category.get("streams", []):
-                            # Shape the data to match Stremio's internal UI architecture
                             metas.append({
                                 "id": f"live:{stream_obj.get('id')}",
                                 "type": "tv",
@@ -67,13 +71,18 @@ class handler(BaseHTTPRequestHandler):
 
                 self.wfile.write(json.dumps({"metas": metas}).encode('utf-8'))
                 return
-
             except Exception:
                 self.wfile.write(json.dumps({"metas": []}).encode('utf-8'))
                 return
 
         # Route C: Handle the dynamic stream payload mapping
         if '/stream/' in url_path:
+            self.send_response(200)
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.send_header('Access-Control-Allow-Headers', '*')
+            self.send_header('Content-Type', 'application/json')
+            self.end_headers()
+            
             try:
                 match = re.search(r'live:(\d+)\.json', url_path)
                 if not match:
@@ -105,7 +114,6 @@ class handler(BaseHTTPRequestHandler):
                     self.wfile.write(json.dumps({"streams": []}).encode('utf-8'))
                     return
 
-                # Send streaming info back into Stremio interface handler
                 stream_response = {
                     "streams": [
                         {
@@ -117,11 +125,13 @@ class handler(BaseHTTPRequestHandler):
                 
                 self.wfile.write(json.dumps(stream_response).encode('utf-8'))
                 return
-
             except Exception:
                 self.wfile.write(json.dumps({"streams": []}).encode('utf-8'))
                 return
 
-        # Fallback error response for unmatched URL structures
+        # Fallback for error handling on unmatched routes
+        self.send_response(404)
+        self.send_header('Content-Type', 'application/json')
+        self.end_headers()
         self.wfile.write(json.dumps({"error": "Not Found"}).encode('utf-8'))
         return
