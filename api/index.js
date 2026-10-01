@@ -11,7 +11,7 @@ function fetchLiveStreams() {
             method: 'GET',
             headers: {
                 'Origin': 'https://embedindia.st',
-                'Referer': 'https://embedindia.st/',
+                'Referer': 'https://embedindia.st',
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/154.0.0.0 Safari/537.36'
             }
         };
@@ -35,7 +35,7 @@ function fetchLiveStreams() {
 // 1. Define the Stremio Addon Profile (Manifest) with Catalog Support
 const MANIFEST = {
     id: "org.ppvstreams.js.addon",
-    version: "1.3.0",
+    version: "1.3.1",
     name: "Live PPV Sports",
     description: "Watch live sports matches directly inside Stremio via Node.js serverless architecture",
     resources: ["catalog", "stream"],
@@ -44,7 +44,7 @@ const MANIFEST = {
     catalogs: [
         {
             id: "live_sports_catalog",
-            type: "tv",
+            type": "tv",
             name": "Live Sports Events"
         }
     ]
@@ -78,7 +78,8 @@ app.get(['/catalog/:type/:id', '/catalog/:type/:id.json'], async (req, res) => {
                 const titleName = streamObj.name || streamObj.uri_name.replace(/-/g, ' ').toUpperCase();
                 const category = streamObj.category_name || "Live Match";
                 
-                metas.append({
+                // FIXED: Using push() instead of append() to eliminate function crashes
+                metas.push({
                     id: `live:${uniqueId}`,
                     type: "tv",
                     name: titleName,
