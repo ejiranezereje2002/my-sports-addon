@@ -32,20 +32,35 @@ function fetchLiveStreams() {
     });
 }
 
-// 1. Define the Stremio Addon Profile (Manifest) with Multi-Type Support
+// Helper utility to safely convert standard text strings into URL-safe layout slugs
+function slugify(text) {
+    return text.toString().toLowerCase().trim()
+        .replace(/\s+/g, '-')
+        .replace(/[^\w\-]+/g, '')
+        .replace(/\-\-+/g, '-');
+}
+
+// 1. Define the Advanced Stremio Addon Profile (Manifest) with Native "sport" Type Lookups
 const MANIFEST = {
     "id": "org.ppvstreams.js.addon",
-    "version": "1.4.1",
+    "version": "1.5.0",
     "name": "Live PPV Sports",
     "description": "Watch live sports matches directly inside Stremio via Node.js serverless architecture",
     "resources": ["catalog", "stream"],
-    "types": ["movie", "tv"], // Supports both movie and tv formats for maximum app cross-compatibility
-    "idPrefixes": ["live:"],
+    "types": ["sport", "movie", "tv"], // Custom "sport" content architecture mapping configuration
+    "idPrefixes": ["live:", "streamed:"],
     "catalogs": [
         {
             "id": "live_sports_catalog",
-            "type": "movie", // Matches the layout rows schema
-            "name": "Live Sports Events"
+            "type": "sport", // This moves the addon directly into Stremio's native "Sport" section dropdown menu
+            "name": "Live Now",
+            "extra": [
+                {
+                    "name": "genre",
+                    "isRequired": false,
+                    "options": ["Live Now", "Today", "American Football", "Basketball", "Football", "Hockey", "Baseball", "Darts", "Rugby"]
+                }
+            ]
         }
     ]
 };
@@ -63,16 +78,28 @@ app.get(['/', '/manifest.json', '/api', '/api/manifest.json'], (req, res) => {
     res.status(200).json(MANIFEST);
 });
 
-// Route B: Homepage Grid Rows Catalog Handler (Nested Parsing)
+// Route B: Premium Homepage Catalog Layout Handler with Multi-Genre Filter Mapping
 app.get(['/catalog/:type/:id', '/catalog/:type/:id.json'], async (req, res) => {
     try {
         const rawData = await fetchLiveStreams();
         const metas = [];
 
+        // Parse optional Stremio genre filters from route parameter strings (e.g., genre=Basketball)
+        const urlParams = req.url.split('?')[1] || '';
+        const genreMatch = urlParams.match(/genre=([^&]+)/);
+        let targetGenre = genreMatch ? decodeURIComponent(genreMatch[1]) : 'Live Now';
+
         if (rawData && rawData.success && Array.isArray(rawData.streams)) {
             rawData.streams.forEach(categoryObj => {
                 const catName = categoryObj.category || "Live Match";
                 
+                // Dropdown structural alignment logic filtering module
+                if (targetGenre !== "Live Now" && targetGenre !== "Today") {
+                    if (catName.toLowerCase().trim() !== targetGenre.toLowerCase().trim()) {
+                        return; // Skip streaming items that do not match selected dropdown parameter fields
+                    }
+                }
+
                 if (Array.isArray(categoryObj.streams)) {
                     categoryObj.streams.forEach(streamObj => {
                         if (streamObj && (streamObj.id || streamObj.uri_name)) {
@@ -81,10 +108,11 @@ app.get(['/catalog/:type/:id', '/catalog/:type/:id.json'], async (req, res) => {
                             
                             metas.push({
                                 "id": `live:${uniqueId}`,
-                                "type": "movie", 
+                                "type": "sport", // Matches the native custom layout types definition
                                 "name": titleName,
                                 "poster": streamObj.poster || "https://placehold.co",
-                                "description": `Sport: ${catName} | Viewers: ${streamObj.viewers || '0'}`,
+                                "description": `LIVE NOW Popular match Sources: Admin\nCategory: ${catName}`,
+                                "genres": [catName, streamObj.source_tag || "Live TV"],
                                 "banner": streamObj.poster || ""
                             });
                         }
@@ -99,11 +127,14 @@ app.get(['/catalog/:type/:id', '/catalog/:type/:id.json'], async (req, res) => {
     }
 });
 
-// Route C: FIXES MOVIE PATHS FOR BOTH PHONE AND WEB CLIENT
+// Route C: Unified Multi-Type Playback Handler covering Movie, TV, and Sport lookups
 app.get(['/stream/:type/:id', '/stream/:type/:id.json'], async (req, res) => {
     try {
         const idParam = req.params.id || '';
-        const cleanId = idParam.replace('live:', '').replace('.json', '');
+        
+        // Handle variations of incoming ID characters cleanly
+        let cleanId = idParam.replace('live:', '').replace('streamed:', '').replace('.json', '');
+        cleanId = decodeURIComponent(cleanId).split('%')[0]; 
         
         const rawData = await fetchLiveStreams();
         let foundStream = null;
@@ -113,7 +144,8 @@ app.get(['/stream/:type/:id', '/stream/:type/:id.json'], async (req, res) => {
                 if (Array.isArray(categoryObj.streams)) {
                     foundStream = categoryObj.streams.find(s => 
                         String(s.id) === String(cleanId) || 
-                        String(s.uri_name) === String(cleanId)
+                        String(s.uri_name) === String(cleanId) ||
+                        slugify(s.name) === slugify(cleanId)
                     );
                     if (foundStream) break;
                 }
@@ -124,10 +156,12 @@ app.get(['/stream/:type/:id', '/stream/:type/:id.json'], async (req, res) => {
             return res.status(200).json({ "streams": [] });
         }
 
+        // Return a clean stream array layout compatible with both TV and Mobile app architectures
         res.status(200).json({
             "streams": [
                 {
-                    "title": `✨ Play Stream on Web Player\nSource: ${foundStream.category_name || 'Live TV'}`,
+                    "name": foundStream.source_tag || "Leaf (4K)",
+                    "title": `${foundStream.name || 'Live Event'}\n1920x1080 · Stereo · Live Feed`,
                     "externalUrl": foundStream.iframe
                 }
             ]
