@@ -11,7 +11,7 @@ function fetchLiveStreams() {
             method: 'GET',
             headers: {
                 'Origin': 'https://embedindia.st',
-                'Referer': 'https://embedindia.st',
+                'Referer': 'https://embedindia.st/',
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/154.0.0.0 Safari/537.36'
             }
         };
@@ -32,19 +32,19 @@ function fetchLiveStreams() {
     });
 }
 
-// 1. Define the Stremio Addon Profile (Manifest) with Catalog Support
+// 1. Define the Stremio Addon Profile (Manifest) - SWITCHED TO "movie" FOR MOBILE SUPPORT
 const MANIFEST = {
     "id": "org.ppvstreams.js.addon",
-    "version": "1.3.3",
+    "version": "1.4.0",
     "name": "Live PPV Sports",
     "description": "Watch live sports matches directly inside Stremio via Node.js serverless architecture",
     "resources": ["catalog", "stream"],
-    "types": ["TV channels"],
+    "types": ["movie"], // Changed from "tv" to force instant stream display on mobile
     "idPrefixes": ["live:"],
     "catalogs": [
         {
             "id": "live_sports_catalog",
-            "type": "TV channels",
+            "type": "movie", // Changed from "tv"
             "name": "Live Sports Events"
         }
     ]
@@ -63,13 +63,12 @@ app.get(['/', '/manifest.json', '/api', '/api/manifest.json'], (req, res) => {
     res.status(200).json(MANIFEST);
 });
 
-// Route B: Homepage Grid Rows Catalog Handler (Nested Parsing)
+// Route B: Homepage Grid Rows Catalog Handler (Switched content mapping to "movie")
 app.get(['/catalog/:type/:id', '/catalog/:type/:id.json'], async (req, res) => {
     try {
         const rawData = await fetchLiveStreams();
         const metas = [];
 
-        // Navigate your actual nested layout structure: data.streams -> category -> streams array
         if (rawData && rawData.success && Array.isArray(rawData.streams)) {
             rawData.streams.forEach(categoryObj => {
                 const catName = categoryObj.category || "Live Match";
@@ -82,7 +81,7 @@ app.get(['/catalog/:type/:id', '/catalog/:type/:id.json'], async (req, res) => {
                             
                             metas.push({
                                 "id": `live:${uniqueId}`,
-                                "type": "TV channels",
+                                "type": "movie", // Fixed mapping content definition type attribute
                                 "name": titleName,
                                 "poster": streamObj.poster || "https://placehold.co",
                                 "description": `Sport: ${catName} | Viewers: ${streamObj.viewers || '0'}`,
@@ -138,5 +137,4 @@ app.get(['/stream/:type/:id', '/stream/:type/:id.json'], async (req, res) => {
     }
 });
 
-// Export app deployment execution loop modules
 module.exports = app;
