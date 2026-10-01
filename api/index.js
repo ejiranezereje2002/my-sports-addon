@@ -11,7 +11,7 @@ function fetchLiveStreams() {
             method: 'GET',
             headers: {
                 'Origin': 'https://embedindia.st',
-                'Referer': 'https://embedindia.st',
+                'Referer': 'https://embedindia.st/',
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/154.0.0.0 Safari/537.36'
             }
         };
@@ -85,7 +85,7 @@ app.get(['/', '/manifest.json', '/api', '/api/manifest.json'], async (req, res) 
 
     const manifest = {
         "id": "org.ppvstreams.js.addon",
-        "version": "1.6.2",
+        "version": "1.6.3",
         "name": "Live PPV Sports",
         "description": "Watch live sports matches directly inside Stremio via Node.js serverless architecture",
         "resources": ["catalog", "stream"],
@@ -162,21 +162,16 @@ app.get(['/catalog/:type/:id', '/catalog/:type/:id.json'], async (req, res) => {
     }
 });
 
-// Route C: BULLETPROOF STREAM ID PARSING
-app.get('/stream/:type/:id*', async (req, res) => {
+// Route C: CATCH-ALL ROUTE FOR STREAM REQUESTS
+app.get('/stream/*', async (req, res) => {
     try {
-        // Isolate the ID parameter from either path variables or raw request pathing structures
-        let rawId = req.params.id || '';
+        // Read the entire URL path directly to avoid parameter splitting issues
+        // Example path: /stream/sport/live:18172.json
+        const rawPath = decodeURIComponent(req.path);
         
-        // Fallback fallback selector parser if Express slices off trailing wildcard values
-        if (!rawId || rawId === 'sport' || rawId === 'movie' || rawId === 'tv') {
-            const urlParts = req.url.split('/');
-            rawId = urlParts[urlParts.length - 1] || '';
-        }
-
-        // Strip prefixes and format extensions completely
-        let cleanId = rawId.replace('live:', '').replace('streamed:', '').replace('.json', '');
-        cleanId = decodeURIComponent(cleanId).trim();
+        // Extract out the stream ID by searching for everything after the last slash or colon
+        let cleanId = rawPath.substring(rawPath.lastIndexOf('/') + 1);
+        cleanId = cleanId.replace('live:', '').replace('streamed:', '').replace('.json', '').trim();
 
         const rawData = await fetchLiveStreams();
         let foundStream = null;
