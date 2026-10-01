@@ -48,7 +48,7 @@ app.use((req, res, next) => {
     next();
 });
 
-// Route A: Base / Manifest endpoint - DYNAMICALLY BUILDS & SORTS YOUR DROP-DOWNS FROM THE API
+// Route A: Base / Manifest endpoint
 app.get(['/', '/manifest.json', '/api', '/api/manifest.json'], async (req, res) => {
     let dynamicGenres = ["Live Now", "Today"];
     let sortingPool = [];
@@ -61,7 +61,6 @@ app.get(['/', '/manifest.json', '/api', '/api/manifest.json'], async (req, res) 
                     const catName = categoryObj.category.trim();
                     if (!catName) return;
 
-                    // Calculate total viewer metrics across this category to inform sorting weights
                     let totalCategoryViewers = 0;
                     if (Array.isArray(categoryObj.streams)) {
                         categoryObj.streams.forEach(s => {
@@ -69,17 +68,11 @@ app.get(['/', '/manifest.json', '/api', '/api/manifest.json'], async (req, res) 
                         });
                     }
 
-                    sortingPool.push({
-                        name: catName,
-                        viewers: totalCategoryViewers
-                    });
+                    sortingPool.push({ name: catName, viewers: totalCategoryViewers });
                 }
             });
 
-            // SORTING ALGORITHM CONFIGURATION: Pushes categories with active live viewers to the top
             sortingPool.sort((a, b) => b.viewers - a.viewers);
-
-            // Extract the sorted names into our final manifest category array structure
             sortingPool.forEach(item => {
                 if (!dynamicGenres.includes(item.name)) {
                     dynamicGenres.push(item.name);
@@ -87,13 +80,12 @@ app.get(['/', '/manifest.json', '/api', '/api/manifest.json'], async (req, res) 
             });
         }
     } catch (e) {
-        // Safe fallback preservation
         dynamicGenres = ["Live Now", "Today", "American Football", "Basketball", "Football", "Hockey", "Baseball", "Darts", "Rugby"];
     }
 
     const manifest = {
         "id": "org.ppvstreams.js.addon",
-        "version": "1.6.1",
+        "version": "1.6.2",
         "name": "Live PPV Sports",
         "description": "Watch live sports matches directly inside Stremio via Node.js serverless architecture",
         "resources": ["catalog", "stream"],
@@ -118,13 +110,12 @@ app.get(['/', '/manifest.json', '/api', '/api/manifest.json'], async (req, res) 
     res.status(200).json(manifest);
 });
 
-// Route B: Homepage Grid Rows Catalog Handler with Native Query Parameter Engine
+// Route B: Homepage Grid Rows Catalog Handler
 app.get(['/catalog/:type/:id', '/catalog/:type/:id.json'], async (req, res) => {
     try {
         const rawData = await fetchLiveStreams();
         const metas = [];
 
-        // FIXED: Using URLSearchParams to safely isolate genre parameters without regex string split crashes
         let targetGenre = 'Live Now';
         if (req.url.includes('?')) {
             const queryString = req.url.substring(req.url.indexOf('?'));
@@ -171,16 +162,22 @@ app.get(['/catalog/:type/:id', '/catalog/:type/:id.json'], async (req, res) => {
     }
 });
 
-// Route C: Unified Multi-Type Playback Handler covering Movie, TV, and Sport lookups
-app.get(['/stream/:type/:id', '/stream/:type/:id.json'], async (req, res) => {
+// Route C: BULLETPROOF STREAM ID PARSING
+app.get('/stream/:type/:id*', async (req, res) => {
     try {
-        const idParam = req.params.id || '';
+        // Isolate the ID parameter from either path variables or raw request pathing structures
+        let rawId = req.params.id || '';
         
-        let cleanId = idParam.replace('live:', '').replace('streamed:', '').replace('.json', '');
-        if (cleanId.includes('%')) {
-            cleanId = decodeURIComponent(cleanId);
+        // Fallback fallback selector parser if Express slices off trailing wildcard values
+        if (!rawId || rawId === 'sport' || rawId === 'movie' || rawId === 'tv') {
+            const urlParts = req.url.split('/');
+            rawId = urlParts[urlParts.length - 1] || '';
         }
-        
+
+        // Strip prefixes and format extensions completely
+        let cleanId = rawId.replace('live:', '').replace('streamed:', '').replace('.json', '');
+        cleanId = decodeURIComponent(cleanId).trim();
+
         const rawData = await fetchLiveStreams();
         let foundStream = null;
 
@@ -190,7 +187,8 @@ app.get(['/stream/:type/:id', '/stream/:type/:id.json'], async (req, res) => {
                     foundStream = categoryObj.streams.find(s => 
                         String(s.id) === String(cleanId) || 
                         String(s.uri_name) === String(cleanId) ||
-                        slugify(s.name) === slugify(cleanId)
+                        slugify(s.name) === slugify(cleanId) ||
+                        slugify(s.uri_name) === slugify(cleanId)
                     );
                     if (foundStream) break;
                 }
