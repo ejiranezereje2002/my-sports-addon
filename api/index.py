@@ -32,14 +32,17 @@ class handler(BaseHTTPRequestHandler):
         self.send_header('Content-Type', 'application/json')
         self.end_headers()
 
-        # Route A: Flexible Manifest file check
-        if 'manifest.json' in url_path or url_path == '/' or url_path == '/api' or url_path == '/api/':
+        # Clean the route path string to handle all variations of manifest calls cleanly
+        cleaned_path = url_path.split('?')[0].strip('/')
+
+        # Route A: Match manifest lookups (empty path, "api", "manifest.json", etc.)
+        if cleaned_path == "" or cleaned_path == "api" or "manifest.json" in cleaned_path:
             response_data = json.dumps(MANIFEST)
             self.wfile.write(response_data.encode('utf-8'))
             return
 
         # Route B: Handle the Homepage Dashboard Catalog
-        if '/catalog/' in url_path:
+        if 'catalog' in cleaned_path:
             try:
                 req = urllib.request.Request('https://ppv.st')
                 req.add_header('Origin', 'https://embedindia.st')
@@ -70,7 +73,7 @@ class handler(BaseHTTPRequestHandler):
                 return
 
         # Route C: Handle the dynamic stream payload mapping
-        if '/stream/' in url_path:
+        if 'stream' in cleaned_path:
             try:
                 match = re.search(r'live:(\d+)\.json', url_path)
                 if not match:
@@ -116,6 +119,6 @@ class handler(BaseHTTPRequestHandler):
                 self.wfile.write(json.dumps({"streams": []}).encode('utf-8'))
                 return
 
-        # Fallback response for unmatched endpoints
-        self.wfile.write(json.dumps({"error": f"Path {url_path} not found directly"}).encode('utf-8'))
+        # Fallback response to guarantee valid JSON formatting is always sent back to Stremio
+        self.wfile.write(json.dumps({"error": f"Path {url_path} not found"}).encode('utf-8'))
         return
