@@ -32,16 +32,17 @@ class handler(BaseHTTPRequestHandler):
         self.send_header('Content-Type', 'application/json')
         self.end_headers()
 
-        # Clean the route path string to handle all variations of manifest calls cleanly
-        cleaned_path = url_path.split('?')[0].strip('/')
+        # Clean the route safely by isolating everything before a '?' parameter symbol
+        path_main = url_path.split('?')[0]
+        cleaned_path = path_main.strip('/')
 
-        # Route A: Match manifest lookups (empty path, "api", "manifest.json", etc.)
+        # Route A: Match manifest lookups cleanly
         if cleaned_path == "" or cleaned_path == "api" or "manifest.json" in cleaned_path:
             response_data = json.dumps(MANIFEST)
             self.wfile.write(response_data.encode('utf-8'))
             return
 
-        # Route B: Handle the Homepage Dashboard Catalog
+        # Route B: Handle the Homepage Dashboard Catalog row display
         if 'catalog' in cleaned_path:
             try:
                 req = urllib.request.Request('https://ppv.st')
@@ -72,7 +73,7 @@ class handler(BaseHTTPRequestHandler):
                 self.wfile.write(json.dumps({"metas": []}).encode('utf-8'))
                 return
 
-        # Route C: Handle the dynamic stream payload mapping
+        # Route C: Handle player request playback source mapping
         if 'stream' in cleaned_path:
             try:
                 match = re.search(r'live:(\d+)\.json', url_path)
@@ -119,6 +120,6 @@ class handler(BaseHTTPRequestHandler):
                 self.wfile.write(json.dumps({"streams": []}).encode('utf-8'))
                 return
 
-        # Fallback response to guarantee valid JSON formatting is always sent back to Stremio
+        # Fallback response ensuring valid JSON dictionary data is returned 
         self.wfile.write(json.dumps({"error": f"Path {url_path} not found"}).encode('utf-8'))
         return
