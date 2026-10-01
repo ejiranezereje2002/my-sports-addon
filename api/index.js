@@ -40,31 +40,6 @@ function slugify(text) {
         .replace(/\-\-+/g, '-');
 }
 
-// 1. Define the Advanced Stremio Addon Profile (Manifest) with Native "sport" Type Lookups
-const MANIFEST = {
-    "id": "org.ppvstreams.js.addon",
-    "version": "1.5.0",
-    "name": "Live PPV Sports",
-    "description": "Watch live sports matches directly inside Stremio via Node.js serverless architecture",
-    "resources": ["catalog", "stream"],
-    "types": ["sport", "movie", "tv"], // Custom "sport" content architecture mapping configuration
-    "idPrefixes": ["live:", "streamed:"],
-    "catalogs": [
-        {
-            "id": "live_sports_catalog",
-            "type": "sport", // This moves the addon directly into Stremio's native "Sport" section dropdown menu
-            "name": "Live Now",
-            "extra": [
-                {
-                    "name": "genre",
-                    "isRequired": false,
-                    "options": ["Live Now", "Today", "American Football", "Basketball", "Football", "Hockey", "Baseball", "Darts", "Rugby"]
-                }
-            ]
-        }
-    ]
-};
-
 // Global CORS Middleware rule block for Stremio client support
 app.use((req, res, next) => {
     res.setHeader('Access-Control-Allow-Origin', '*');
@@ -73,12 +48,57 @@ app.use((req, res, next) => {
     next();
 });
 
-// Route A: Base / Manifest endpoints lookup mapping
-app.get(['/', '/manifest.json', '/api', '/api/manifest.json'], (req, res) => {
-    res.status(200).json(MANIFEST);
+// Route A: Base / Manifest endpoint - DYNAMICALLY BUILDS YOUR DROP-DOWNS FROM THE API
+app.get(['/', '/manifest.json', '/api', '/api/manifest.json'], async (req, res) => {
+    // Default fallback options if the API lookup fails or is empty
+    let dynamicGenres = ["Live Now", "Today"];
+    
+    try {
+        const rawData = await fetchLiveStreams();
+        if (rawData && rawData.success && Array.isArray(rawData.streams)) {
+            rawData.streams.forEach(categoryObj => {
+                if (categoryObj && categoryObj.category) {
+                    const catName = categoryObj.category.trim();
+                    // Avoid duplicating genres in our drop-down list array
+                    if (catName && !dynamicGenres.includes(catName)) {
+                        dynamicGenres.push(catName);
+                    }
+                }
+            });
+        }
+    } catch (e) {
+        // Safe fallback preservation
+        dynamicGenres = ["Live Now", "Today", "American Football", "Basketball", "Football", "Hockey", "Baseball", "Darts", "Rugby"];
+    }
+
+    const manifest = {
+        "id": "org.ppvstreams.js.addon",
+        "version": "1.6.0",
+        "name": "Live PPV Sports",
+        "description": "Watch live sports matches directly inside Stremio via Node.js serverless architecture",
+        "resources": ["catalog", "stream"],
+        "types": ["sport", "movie", "tv"],
+        "idPrefixes": ["live:", "streamed:"],
+        "catalogs": [
+            {
+                "id": "live_sports_catalog",
+                "type": "sport",
+                "name": "Live Now",
+                "extra": [
+                    {
+                        "name": "genre",
+                        "isRequired": false,
+                        "options": dynamicGenres // Dynamically inserted sport array elements
+                    }
+                ]
+            }
+        ]
+    };
+
+    res.status(200).json(manifest);
 });
 
-// Route B: Premium Homepage Catalog Layout Handler with Multi-Genre Filter Mapping
+// Route B: Homepage Grid Rows Catalog Handler with Multi-Genre Filter Mapping
 app.get(['/catalog/:type/:id', '/catalog/:type/:id.json'], async (req, res) => {
     try {
         const rawData = await fetchLiveStreams();
@@ -108,7 +128,7 @@ app.get(['/catalog/:type/:id', '/catalog/:type/:id.json'], async (req, res) => {
                             
                             metas.push({
                                 "id": `live:${uniqueId}`,
-                                "type": "sport", // Matches the native custom layout types definition
+                                "type": "sport",
                                 "name": titleName,
                                 "poster": streamObj.poster || "https://placehold.co",
                                 "description": `LIVE NOW Popular match Sources: Admin\nCategory: ${catName}`,
@@ -134,7 +154,9 @@ app.get(['/stream/:type/:id', '/stream/:type/:id.json'], async (req, res) => {
         
         // Handle variations of incoming ID characters cleanly
         let cleanId = idParam.replace('live:', '').replace('streamed:', '').replace('.json', '');
-        cleanId = decodeURIComponent(cleanId).split('%')[0]; 
+        if (cleanId.includes('%')) {
+            cleanId = decodeURIComponent(cleanId);
+        }
         
         const rawData = await fetchLiveStreams();
         let foundStream = null;
