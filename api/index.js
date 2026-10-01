@@ -32,20 +32,20 @@ function fetchLiveStreams() {
     });
 }
 
-// 1. Define the Stremio Addon Profile (Manifest) with Catalog Support
+// 1. Define the Stremio Addon Profile (Manifest) with strict JSON Key syntax properties
 const MANIFEST = {
-    id: "org.ppvstreams.js.addon",
-    version: "1.3.1",
-    name: "Live PPV Sports",
-    description: "Watch live sports matches directly inside Stremio via Node.js serverless architecture",
-    resources: ["catalog", "stream"],
-    types: ["tv", "movie"],
-    idPrefixes: ["live:"],
-    catalogs: [
+    "id": "org.ppvstreams.js.addon",
+    "version": "1.3.2",
+    "name": "Live PPV Sports",
+    "description": "Watch live sports matches directly inside Stremio via Node.js serverless architecture",
+    "resources": ["catalog", "stream"],
+    "types": ["tv", "movie"],
+    "idPrefixes": ["live:"],
+    "catalogs": [
         {
-            id: "live_sports_catalog",
-            type": "tv",
-            name": "Live Sports Events"
+            "id": "live_sports_catalog",
+            "type": "tv",
+            "name": "Live Sports Events"
         }
     ]
 };
@@ -78,21 +78,20 @@ app.get(['/catalog/:type/:id', '/catalog/:type/:id.json'], async (req, res) => {
                 const titleName = streamObj.name || streamObj.uri_name.replace(/-/g, ' ').toUpperCase();
                 const category = streamObj.category_name || "Live Match";
                 
-                // FIXED: Using push() instead of append() to eliminate function crashes
                 metas.push({
-                    id: `live:${uniqueId}`,
-                    type: "tv",
-                    name: titleName,
-                    poster: streamObj.poster || "https://placehold.co",
-                    description: `Category: ${category} | Viewers: ${streamObj.viewers || '0'}`,
-                    banner: streamObj.poster || ""
+                    "id": `live:${uniqueId}`,
+                    "type": "tv",
+                    "name": titleName,
+                    "poster": streamObj.poster || "https://placehold.co",
+                    "description": `Category: ${category} | Viewers: ${streamObj.viewers || '0'}`,
+                    "banner": streamObj.poster || ""
                 });
             }
         });
 
-        res.status(200).json({ metas: metas });
+        res.status(200).json({ "metas": metas });
     } catch (error) {
-        res.status(200).json({ metas: [] });
+        res.status(200).json({ "metas": [] });
     }
 });
 
@@ -102,7 +101,7 @@ app.get(['/stream/:type/:id', '/stream/:type/:id.json'], async (req, res) => {
         const idParam = req.params.id || '';
         const streamIdMatch = idParam.match(/live:(.+)/);
         if (!streamIdMatch) {
-            return res.status(200).json({ streams: [] });
+            return res.status(200).json({ "streams": [] });
         }
 
         const targetId = streamIdMatch[1].replace('.json', '');
@@ -117,19 +116,19 @@ app.get(['/stream/:type/:id', '/stream/:type/:id.json'], async (req, res) => {
         );
 
         if (!foundStream || !foundStream.iframe) {
-            return res.status(200).json({ streams: [] });
+            return res.status(200).json({ "streams": [] });
         }
 
         res.status(200).json({
-            streams: [
+            "streams": [
                 {
-                    title: `✨ Play Stream on Web Player\nSource: ${foundStream.category_name || 'Live TV'}`,
-                    externalUrl: foundStream.iframe
+                    "title": `✨ Play Stream on Web Player\nSource: ${foundStream.category_name || 'Live TV'}`,
+                    "externalUrl": foundStream.iframe
                 }
             ]
         });
     } catch (error) {
-        res.status(200).json({ streams: [] });
+        res.status(200).json({ "streams": [] });
     }
 });
 
