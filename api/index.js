@@ -1,6 +1,8 @@
+const express = require('express');
 const https = require('https');
+const app = express();
 
-// Helper function to safely fetch data using native node.js streaming modules
+// Helper function to pull the stream JSON data cleanly using native Node.js
 function fetchLiveStreams() {
     return new Promise((resolve) => {
         const options = {
@@ -30,7 +32,7 @@ function fetchLiveStreams() {
     });
 }
 
-// 1. Define the Stremio Addon Profile (Manifest) with Catalog Support
+// Define the Stremio Manifest profile structure
 const MANIFEST = {
     id: "org.ppvstreams.js.addon",
     version: "1.2.0",
@@ -48,103 +50,85 @@ const MANIFEST = {
     ]
 };
 
-// 2. Main Native Serverless Handler 
-module.exports = async (req, res) => {
-    // Setup required standard CORS parameters immediately for cross-origin lookup support
+// Global CORS Middleware rule block for Stremio client support
+app.use((req, res, next) => {
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Headers', '*');
     res.setHeader('Content-Type', 'application/json');
+    next();
+});
 
-    const urlPath = req.url || '';
+// Route A: Base / Manifest endpoints lookup mapping
+app.get(['/', '/manifest.json', '/api', '/api/manifest.json'], (req, res) => {
+    res.status(200).json(MANIFEST);
+});
 
-    // Route A: Provide the Manifest profile smoothly 
-    if (urlPath === '/' || urlPath.includes('manifest.json')) {
-        res.statusCode = 200;
-        res.end(JSON.stringify(MANIFEST));
-        return;
-    }
+// Route B: Homepage Grid Rows Catalog Handler
+app.get(['/catalog/:type/:id', '/catalog/:type/:id.json'], async (req, res) => {
+    try {
+        const data = await fetchLiveStreams();
+        const metas = [];
 
-    // Route B: Handle the Homepage Dashboard rows displaying active games
-    if (urlPath.includes('/catalog/')) {
-        try {
-            const data = await fetchLiveStreams();
-            const metas = [];
-
-            if (data && data.success && data.streams) {
-                data.streams.forEach(category => {
-                    const catName = category.category || "Live Match";
-                    if (category.streams) {
-                        category.streams.forEach(streamObj => {
-                            metas.push({
-                                id: `live:${streamObj.id}`,
-                                type: "tv",
-                                name: streamObj.name,
-                                poster: streamObj.poster,
-                                description: `Sport: ${catName} | Source: ${streamObj.source_tag || 'Live Link'}`,
-                                banner: streamObj.poster
-                            });
+        if (data && data.success && data.streams) {
+            data.streams.forEach(category => {
+                const catName = category.category || "Live Match";
+                if (category.streams) {
+                    category.streams.forEach(streamObj => {
+                        metas.push({
+                            id: `live:${streamObj.id}`,
+                            type: "tv",
+                            name: streamObj.name,
+                            poster: streamObj.poster,
+                            description: `Sport: ${catName} | Source: ${streamObj.source_tag || 'Live Link'}`,
+                            banner: streamObj.poster
                         });
-                    }
-                });
-            }
-
-            res.statusCode = 200;
-            res.end(JSON.stringify({ metas: metas }));
-            return;
-        } catch (error) {
-            res.statusCode = 200;
-            res.end(JSON.stringify({ metas: [] }));
-            return;
+                    });
+                }
+            });
         }
+        res.status(200).json({ metas: metas });
+    } catch (error) {
+        res.status(200).json({ metas: [] });
     }
+});
 
-    // Route C: Handle the video playback link provider mapping
-    if (urlPath.includes('/stream/')) {
-        try {
-            const match = urlPath.match(/live:(\d+)\.json/);
-            if (!match) {
-                res.statusCode = 200;
-                res.end(JSON.stringify({ streams: [] }));
-                return;
-            }
+// Route C: Dynamic Player Playback Source link mapping provider
+app.get(['/stream/:type/:id', '/stream/:type/:id.json'], async (req, res) => {
+    try {
+        const streamIdMatch = req.params.id.match(/live:(\d+)/);
+        if (!streamIdMatch) {
+            return res.status(200).json({ streams: [] });
+        }
 
-            const streamId = parseInt(match, 10);
-            const data = await fetchLiveStreams();
-            let foundStream = null;
+        const streamId = parseInt(streamIdMatch[1], 10);
+        const data = await fetchLiveStreams();
+        let foundStream = null;
 
-            if (data && data.success && data.streams) {
-                for (const category of data.streams) {
-                    if (category.streams) {
-                        foundStream = category.streams.find(s => s.id === streamId);
-                        if (foundStream) break;
-                    }
+        if (data && data.success && data.streams) {
+            for (const category of data.streams) {
+                if (category.streams) {
+                    foundStream = category.streams.find(s => s.id === streamId);
+                    if (foundStream) break;
                 }
             }
-
-            if (!foundStream) {
-                res.statusCode = 200;
-                res.end(JSON.stringify({ streams: [] }));
-                return;
-            }
-
-            res.statusCode = 200;
-            res.end(JSON.stringify({
-                streams: [
-                    {
-                        title: `${foundStream.name}\nSource: ${foundStream.source_tag || 'Web Player'}`,
-                        externalUrl: foundStream.iframe
-                    }
-                ]
-            }));
-            return;
-        } catch (error) {
-            res.statusCode = 200;
-            res.end(JSON.stringify({ streams: [] }));
-            return;
         }
-    }
 
-    // Fallback response for unhandled endpoints
-    res.statusCode = 404;
-    res.end(JSON.stringify({ error: "Not Found" }));
-};
+        if (!foundStream) {
+            return res.status(200).json({ streams: [] });
+        }
+
+        res.status(200).json({
+            streams: [
+                {
+                    title: `${foundStream.name}\nSource: ${foundStream.source_tag || 'Web Player'}`,
+                    externalUrl: foundStream.iframe
+                }
+            ]
+        });
+    } catch (error) {
+        res.status(200).json({ streams: [] });
+    }
+});
+
+// Export app deployment execution loop modules
+module.exports = app;
