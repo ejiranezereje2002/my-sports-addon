@@ -45,7 +45,7 @@ const MANIFEST = {
         {
             id: "live_sports_catalog",
             type: "tv",
-            name": "Live Sports Events"
+            name: "Live Sports Events"
         }
     ]
 };
@@ -101,7 +101,7 @@ app.get(['/stream/:type/:id', '/stream/:type/:id.json'], async (req, res) => {
             return res.status(200).json({ streams: [] });
         }
 
-        const streamId = parseInt(streamIdMatch[1], 10);
+        const streamId = parseInt(streamIdMatch, 10);
         const data = await fetchLiveStreams();
         let foundStream = null;
 
