@@ -1,6 +1,6 @@
 const axios = require('axios');
 
-const API_URL = 'https://bintvjson.lovable.app/api/public/bintvjson';
+const API_URL = 'https://lovable.app';
 
 // Define the Stremio Addon Manifest
 const manifest = {
@@ -36,6 +36,7 @@ module.exports = async (req, res) => {
     res.setHeader('Access-Control-Allow-Headers', '*');
     res.setHeader('Content-Type', 'application/json');
 
+    // Safely extract the clean pathname without query parameters
     const urlPath = req.url.split('?')[0];
 
     // Manifest Endpoint
@@ -44,13 +45,13 @@ module.exports = async (req, res) => {
     }
 
     try {
-        // Fetch fresh payload array data from raw Lovable source
+        // Fetch fresh payload from raw Lovable source
         const apiResponse = await axios.get(API_URL);
         const data = apiResponse.data;
 
         // Catalog Endpoint
         if (urlPath.startsWith('/catalog/tv/')) {
-            const catalogId = urlPath.split('/')[3].replace('.json', '');
+            const catalogId = urlPath.replace('/catalog/tv/', '').replace('.json', '');
             let items = [];
 
             if (catalogId === 'bintv_live' && data['Live Events']) {
@@ -68,7 +69,7 @@ module.exports = async (req, res) => {
                 poster: item.poster,
                 banner: item.poster,
                 genres: [item.category || 'Sports'],
-                description: `Status: ${item.status}. Stream options: ${item.streams ? item.streams.map(s => s.name).join(', ') : 'None'}`
+                description: `Status: ${item.status || 'Active'}`
             }));
 
             return res.status(200).json({ metas });
@@ -76,7 +77,7 @@ module.exports = async (req, res) => {
 
         // Meta Endpoint
         if (urlPath.startsWith('/meta/tv/')) {
-            const rawId = urlPath.split('/')[3].replace('.json', '').replace('bintv:', '');
+            const rawId = urlPath.replace('/meta/tv/', '').replace('.json', '').replace('bintv:', '');
             
             // Search all arrays for the item definition
             const allItems = [
@@ -104,7 +105,7 @@ module.exports = async (req, res) => {
 
         // Stream Endpoint
         if (urlPath.startsWith('/stream/tv/')) {
-            const rawId = urlPath.split('/')[3].replace('.json', '').replace('bintv:', '');
+            const rawId = urlPath.replace('/stream/tv/', '').replace('.json', '').replace('bintv:', '');
             
             const allItems = [
                 ...(data['Live Events'] || []),
@@ -118,12 +119,22 @@ module.exports = async (req, res) => {
                 return res.status(200).json({ streams: [] });
             }
 
-            // Map standard web URLs/M3U8 links to Stremio Engine structure
-            const streams = item.streams.map(stream => ({
-                name: `BinTV\n${stream.name}`,
-                title: item.name,
-                url: stream.url // Stremio external player / web view fallback link
-            }));
+            // Map URLs to proper Stremio stream structures
+            const streams = item.streams.map(stream => {
+                const streamObj = {
+                    name: `BinTV\n${stream.name}`,
+                    title: item.name
+                };
+
+                // Check if the stream link is a web page embedding or a raw stream index file
+                if (stream.url.includes('.m3u8') || stream.url.includes('.mpd')) {
+                    streamObj.url = stream.url;
+                } else {
+                    streamObj.externalUrl = stream.url; // Safe fallback for webpage players
+                }
+
+                return streamObj;
+            });
 
             return res.status(200).json({ streams });
         }
@@ -132,6 +143,6 @@ module.exports = async (req, res) => {
 
     } catch (error) {
         console.error(error);
-        return res.status(500).json({ error: 'Internal pipeline broken fetching remote sports JSON content' });
+        return res.status(500).json({ error: 'Internal server error processing payload infrastructure' });
     }
 };
