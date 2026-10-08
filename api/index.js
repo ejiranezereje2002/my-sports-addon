@@ -39,7 +39,7 @@ module.exports = async (req, res) => {
     }
 
     const rawUrl = req.url || '';
-    // Safely extract path string before any query parameters
+    // FIXED: Access index 0 to get the clean string route profile path
     const cleanPath = rawUrl.split('?')[0]; 
 
     // 1. Manifest Endpoint
@@ -47,14 +47,13 @@ module.exports = async (req, res) => {
         return res.status(200).json(manifest);
     }
 
-    // Initialize data storage safely
+    // Load API stream data payloads
     let data = {};
     try {
         const apiResponse = await axios.get(API_URL, { timeout: 8000 });
         data = apiResponse.data || {};
     } catch (apiErr) {
         console.error('Failed to fetch sports API payload:', apiErr.message);
-        // If external API times out, return empty structures quickly to prevent Stremio stalling
         if (cleanPath.includes('/catalog/')) return res.status(200).json({ metas: [] });
         if (cleanPath.includes('/stream/')) return res.status(200).json({ streams: [] });
         if (cleanPath.includes('/meta/')) return res.status(200).json({ meta: {} });
