@@ -30,22 +30,21 @@ const manifest = {
 };
 
 module.exports = async (req, res) => {
-    // Force set headers to completely remove any CORS blocks or parsing friction
+    // Inject correct headers for cross-origin handshakes
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Headers', '*');
     res.setHeader('Content-Type', 'application/json');
 
-    // Handle initial pre-flight check options safely
     if (req.method === 'OPTIONS') {
         return res.status(200).end();
     }
 
-    // Safely extract the pathname as a pure string
-    const fullUrl = req.url || '';
-    const cleanPath = fullUrl.split('?')[0];
+    // Safely parse the incoming path using standard string cleaning
+    const rawUrl = req.url || '';
+    const cleanPath = rawUrl.split('?')[0]; 
 
-    // Manifest Endpoint - Catches all common root variations
-    if (cleanPath === '/' || cleanPath === '/manifest.json' || cleanPath === '/api' || cleanPath === '/api/index') {
+    // 1. Manifest Endpoint Routing
+    if (cleanPath === '/' || cleanPath === '/manifest.json' || cleanPath.endsWith('/api') || cleanPath.endsWith('/api/index')) {
         return res.status(200).json(manifest);
     }
 
@@ -53,7 +52,7 @@ module.exports = async (req, res) => {
         const apiResponse = await axios.get(API_URL);
         const data = apiResponse.data || {};
 
-        // Catalog Endpoint
+        // 2. Catalog Endpoint Routing
         if (cleanPath.includes('/catalog/tv/')) {
             const catalogId = cleanPath.split('/catalog/tv/')[1].replace('.json', '');
             let items = [];
@@ -79,7 +78,7 @@ module.exports = async (req, res) => {
             return res.status(200).json({ metas });
         }
 
-        // Meta Endpoint
+        // 3. Meta Endpoint Routing
         if (cleanPath.includes('/meta/tv/')) {
             const pathId = cleanPath.split('/meta/tv/')[1].replace('.json', '');
             const rawId = decodeURIComponent(pathId).replace('bintv:', '');
@@ -107,7 +106,7 @@ module.exports = async (req, res) => {
             return res.status(200).json({ meta });
         }
 
-        // Stream Endpoint
+        // 4. Stream Endpoint Routing
         if (cleanPath.includes('/stream/tv/')) {
             const pathId = cleanPath.split('/stream/tv/')[1].replace('.json', '');
             const rawId = decodeURIComponent(pathId).replace('bintv:', '');
@@ -143,15 +142,22 @@ module.exports = async (req, res) => {
             return res.status(200).json({ streams });
         }
 
-        // Fallback catch-all error handling for unrecognized stream routes
         return res.status(404).json({ error: 'Endpoint path not matched' });
 
     } catch (error) {
-        console.error('Addon Engine Crash Hook:', error.message);
-        return res.status(200).json({ 
-            metas: [], 
-            streams: [], 
-            note: 'Graceful crash recovery active. Check remote API target status.' 
-        });
+        console.error('Addon Engine Exception Context:', error.message);
+        
+        // Dynamically return clean responses corresponding strictly to the endpoint type
+        if (cleanPath.includes('/catalog/')) {
+            return res.status(200).json({ metas: [] });
+        }
+        if (cleanPath.includes('/stream/')) {
+            return res.status(200).json({ streams: [] });
+        }
+        if (cleanPath.includes('/meta/')) {
+            return res.status(200).json({ meta: {} });
+        }
+        
+        return res.status(200).json(manifest);
     }
 };
