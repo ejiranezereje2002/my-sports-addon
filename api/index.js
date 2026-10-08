@@ -38,34 +38,35 @@ module.exports = async (req, res) => {
         return res.status(200).end();
     }
 
+    // Isolate path parts by stripping query items and splitting by slashes
     const rawUrl = req.url || '';
-    // FIXED: Access index 0 to get the clean string route profile path
-    const cleanPath = rawUrl.split('?')[0]; 
+    const pathString = rawUrl.split('?')[0];
+    const pathParts = pathString.split('/').filter(Boolean);
 
-    // 1. Manifest Endpoint
-    if (cleanPath === '/' || cleanPath === '/manifest.json' || cleanPath.endsWith('/api') || cleanPath.endsWith('/api/index')) {
+    // 1. Manifest Endpoint handler (Handles /, /manifest.json, /api, /api/manifest.json)
+    if (pathParts.length === 0 || pathParts[pathParts.length - 1] === 'manifest.json' || pathParts[pathParts.length - 1] === 'api') {
         return res.status(200).json(manifest);
     }
 
-    // Load API stream data payloads
+    // Load API payload data
     let data = {};
     try {
         const apiResponse = await axios.get(API_URL, { timeout: 8000 });
         data = apiResponse.data || {};
     } catch (apiErr) {
         console.error('Failed to fetch sports API payload:', apiErr.message);
-        if (cleanPath.includes('/catalog/')) return res.status(200).json({ metas: [] });
-        if (cleanPath.includes('/stream/')) return res.status(200).json({ streams: [] });
-        if (cleanPath.includes('/meta/')) return res.status(200).json({ meta: {} });
+        if (pathString.includes('/catalog/')) return res.status(200).json({ metas: [] });
+        if (pathString.includes('/stream/')) return res.status(200).json({ streams: [] });
+        if (pathString.includes('/meta/')) return res.status(200).json({ meta: {} });
         return res.status(200).json(manifest);
     }
 
-    // 2. Catalog Endpoint
-    if (cleanPath.includes('/catalog/tv/')) {
+    // 2. Catalog Endpoint handler
+    if (pathString.includes('/catalog/')) {
         try {
-            const parts = cleanPath.split('/catalog/tv/');
-            const catalogFileName = parts[parts.length - 1] || '';
-            const catalogId = catalogFileName.replace('.json', '');
+            // Stremio path structure template: /catalog/{type}/{id}.json
+            const jsonFile = pathParts[pathParts.length - 1] || '';
+            const catalogId = jsonFile.replace('.json', '');
             
             let items = [];
             if (catalogId === 'bintv_live' && data['Live Events']) {
@@ -93,12 +94,12 @@ module.exports = async (req, res) => {
         }
     }
 
-    // 3. Meta Endpoint
-    if (cleanPath.includes('/meta/tv/')) {
+    // 3. Meta Endpoint handler
+    if (pathString.includes('/meta/')) {
         try {
-            const parts = cleanPath.split('/meta/tv/');
-            const metaFileName = parts[parts.length - 1] || '';
-            const rawId = decodeURIComponent(metaFileName.replace('.json', '')).replace('bintv:', '');
+            // Stremio path structure template: /meta/{type}/{id}.json
+            const jsonFile = pathParts[pathParts.length - 1] || '';
+            const rawId = decodeURIComponent(jsonFile.replace('.json', '')).replace('bintv:', '');
             
             const allItems = [
                 ...(data['Live Events'] || []),
@@ -126,12 +127,12 @@ module.exports = async (req, res) => {
         }
     }
 
-    // 4. Stream Endpoint
-    if (cleanPath.includes('/stream/tv/')) {
+    // 4. Stream Endpoint handler
+    if (pathString.includes('/stream/')) {
         try {
-            const parts = cleanPath.split('/stream/tv/');
-            const streamFileName = parts[parts.length - 1] || '';
-            const rawId = decodeURIComponent(streamFileName.replace('.json', '')).replace('bintv:', '');
+            // Stremio path structure template: /stream/{type}/{id}.json
+            const jsonFile = pathParts[pathParts.length - 1] || '';
+            const rawId = decodeURIComponent(jsonFile.replace('.json', '')).replace('bintv:', '');
             
             const allItems = [
                 ...(data['Live Events'] || []),
