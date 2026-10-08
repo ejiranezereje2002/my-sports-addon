@@ -1,7 +1,9 @@
 {
   "name": "stremio-sports-addon",
   "version": "1.0.0",
+  "description": "Stremio Sports Addon powered by BinTV JSON API",
+  "main": "api/index.js",
   "dependencies": {
-    "express": "^4.19.2"
+    "axios": "^1.7.0"
   }
 }
