@@ -1,211 +1,137 @@
-const express = require('express');
-const https = require('https');
-const app = express();
+const axios = require('axios');
 
-// Helper function to safely pull layout data using native Node.js
-function fetchLiveStreams() {
-    return new Promise((resolve) => {
-        const options = {
-            hostname: 'api.ppv.st',
-            path: '/api/streams',
-            method: 'GET',
-            headers: {
-                'Origin': 'https://embedindia.st',
-                'Referer': 'https://embedindia.st/',
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/154.0.0.0 Safari/537.36'
-            }
-        };
+const API_URL = 'https://bintvjson.lovable.app/api/public/bintvjson';
 
-        https.get(options, (res) => {
-            let data = '';
-            res.on('data', (chunk) => { data += chunk; });
-            res.on('end', () => {
-                try {
-                    resolve(JSON.parse(data));
-                } catch (e) {
-                    resolve(null);
-                }
-            });
-        }).on('error', () => {
-            resolve(null);
-        });
-    });
-}
+// Define the Stremio Addon Manifest
+const manifest = {
+    id: 'org.stremio.bintvsports',
+    version: '1.0.0',
+    name: 'BinTV Sports & Live TV',
+    description: 'Watch live sports events, upcoming matches, and 24/7 channels.',
+    resources: ['catalog', 'meta', 'stream'],
+    types: ['tv'],
+    catalogs: [
+        {
+            type: 'tv',
+            id: 'bintv_live',
+            name: '🔴 Live Events'
+        },
+        {
+            type: 'tv',
+            id: 'bintv_upcoming',
+            name: '📅 Upcoming Events'
+        },
+        {
+            type: 'tv',
+            id: 'bintv_channels',
+            name: '📺 24/7 Channels'
+        }
+    ],
+    idPrefixes: ['bintv:']
+};
 
-// Helper utility to safely convert standard text strings into URL-safe layout slugs
-function slugify(text) {
-    return text.toString().toLowerCase().trim()
-        .replace(/\s+/g, '-')
-        .replace(/[^\w\-]+/g, '')
-        .replace(/\-\-+/g, '-');
-}
-
-// Global CORS Middleware rule block for Stremio client support
-app.use((req, res, next) => {
+module.exports = async (req, res) => {
+    // Add CORS headers explicitly for Stremio client compatibility
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Headers', '*');
     res.setHeader('Content-Type', 'application/json');
-    next();
-});
 
-// Route A: Base / Manifest endpoint
-app.get(['/', '/manifest.json', '/api', '/api/manifest.json'], async (req, res) => {
-    let dynamicGenres = ["Live Now", "Today"];
-    let sortingPool = [];
-    
-    try {
-        const rawData = await fetchLiveStreams();
-        if (rawData && rawData.success && Array.isArray(rawData.streams)) {
-            rawData.streams.forEach(categoryObj => {
-                if (categoryObj && categoryObj.category) {
-                    const catName = categoryObj.category.trim();
-                    if (!catName) return;
+    const urlPath = req.url.split('?')[0];
 
-                    let totalCategoryViewers = 0;
-                    if (Array.isArray(categoryObj.streams)) {
-                        categoryObj.streams.forEach(s => {
-                            totalCategoryViewers += parseInt(s.viewers || 0, 10);
-                        });
-                    }
-
-                    sortingPool.push({ name: catName, viewers: totalCategoryViewers });
-                }
-            });
-
-            sortingPool.sort((a, b) => b.viewers - a.viewers);
-            sortingPool.forEach(item => {
-                if (!dynamicGenres.includes(item.name)) {
-                    dynamicGenres.push(item.name);
-                }
-            });
-        }
-    } catch (e) {
-        dynamicGenres = ["Live Now", "Today", "American Football", "Basketball", "Football", "Hockey", "Baseball", "Darts", "Rugby"];
+    // Manifest Endpoint
+    if (urlPath === '/' || urlPath === '/manifest.json') {
+        return res.status(200).json(manifest);
     }
 
-    const manifest = {
-        "id": "org.ppvstreams.js.addon",
-        "version": "1.6.3",
-        "name": "Live PPV Sports",
-        "description": "Watch live sports matches directly inside Stremio via Node.js serverless architecture",
-        "resources": ["catalog", "stream"],
-        "types": ["sport", "movie", "tv"],
-        "idPrefixes": ["live:", "streamed:"],
-        "catalogs": [
-            {
-                "id": "live_sports_catalog",
-                "type": "sport",
-                "name": "Live Now",
-                "extra": [
-                    {
-                        "name": "genre",
-                        "isRequired": false,
-                        "options": dynamicGenres
-                    }
-                ]
-            }
-        ]
-    };
-
-    res.status(200).json(manifest);
-});
-
-// Route B: Homepage Grid Rows Catalog Handler
-app.get(['/catalog/:type/:id', '/catalog/:type/:id.json'], async (req, res) => {
     try {
-        const rawData = await fetchLiveStreams();
-        const metas = [];
+        // Fetch fresh payload array data from raw Lovable source
+        const apiResponse = await axios.get(API_URL);
+        const data = apiResponse.data;
 
-        let targetGenre = 'Live Now';
-        if (req.url.includes('?')) {
-            const queryString = req.url.substring(req.url.indexOf('?'));
-            const urlParams = new URLSearchParams(queryString);
-            if (urlParams.has('genre')) {
-                targetGenre = urlParams.get('genre');
+        // Catalog Endpoint
+        if (urlPath.startsWith('/catalog/tv/')) {
+            const catalogId = urlPath.split('/')[3].replace('.json', '');
+            let items = [];
+
+            if (catalogId === 'bintv_live' && data['Live Events']) {
+                items = data['Live Events'];
+            } else if (catalogId === 'bintv_upcoming' && data['Upcoming Events']) {
+                items = data['Upcoming Events'];
+            } else if (catalogId === 'bintv_channels' && data['24/7 Channels']) {
+                items = data['24/7 Channels'];
             }
+
+            const metas = items.map(item => ({
+                id: `bintv:${item.id}`,
+                type: 'tv',
+                name: item.name,
+                poster: item.poster,
+                banner: item.poster,
+                genres: [item.category || 'Sports'],
+                description: `Status: ${item.status}. Stream options: ${item.streams ? item.streams.map(s => s.name).join(', ') : 'None'}`
+            }));
+
+            return res.status(200).json({ metas });
         }
 
-        if (rawData && rawData.success && Array.isArray(rawData.streams)) {
-            rawData.streams.forEach(categoryObj => {
-                const catName = categoryObj.category || "Live Match";
-                
-                if (targetGenre !== "Live Now" && targetGenre !== "Today") {
-                    if (catName.toLowerCase().trim() !== targetGenre.toLowerCase().trim()) {
-                        return; 
-                    }
-                }
+        // Meta Endpoint
+        if (urlPath.startsWith('/meta/tv/')) {
+            const rawId = urlPath.split('/')[3].replace('.json', '').replace('bintv:', '');
+            
+            // Search all arrays for the item definition
+            const allItems = [
+                ...(data['Live Events'] || []),
+                ...(data['Upcoming Events'] || []),
+                ...(data['24/7 Channels'] || [])
+            ];
+            
+            const item = allItems.find(i => i.id === rawId);
 
-                if (Array.isArray(categoryObj.streams)) {
-                    categoryObj.streams.forEach(streamObj => {
-                        if (streamObj && (streamObj.id || streamObj.uri_name)) {
-                            const uniqueId = streamObj.id || streamObj.uri_name;
-                            const titleName = streamObj.name || uniqueId.toString().toUpperCase();
-                            
-                            metas.push({
-                                "id": `live:${uniqueId}`,
-                                "type": "sport",
-                                "name": titleName,
-                                "poster": streamObj.poster || "https://placehold.co",
-                                "description": `LIVE NOW Popular match Sources: Admin\nCategory: ${catName}`,
-                                "genres": [catName, streamObj.source_tag || "Live TV"],
-                                "banner": streamObj.poster || ""
-                            });
-                        }
-                    });
-                }
-            });
+            if (!item) return res.status(404).json({ error: 'Item not found' });
+
+            const meta = {
+                id: `bintv:${item.id}`,
+                type: 'tv',
+                name: item.name,
+                poster: item.poster,
+                banner: item.poster,
+                genres: [item.category || 'Sports'],
+                description: `Watch live video coverage of ${item.name}.`
+            };
+
+            return res.status(200).json({ meta });
         }
 
-        res.status(200).json({ "metas": metas });
+        // Stream Endpoint
+        if (urlPath.startsWith('/stream/tv/')) {
+            const rawId = urlPath.split('/')[3].replace('.json', '').replace('bintv:', '');
+            
+            const allItems = [
+                ...(data['Live Events'] || []),
+                ...(data['Upcoming Events'] || []),
+                ...(data['24/7 Channels'] || [])
+            ];
+            
+            const item = allItems.find(i => i.id === rawId);
+
+            if (!item || !item.streams) {
+                return res.status(200).json({ streams: [] });
+            }
+
+            // Map standard web URLs/M3U8 links to Stremio Engine structure
+            const streams = item.streams.map(stream => ({
+                name: `BinTV\n${stream.name}`,
+                title: item.name,
+                url: stream.url // Stremio external player / web view fallback link
+            }));
+
+            return res.status(200).json({ streams });
+        }
+
+        return res.status(404).json({ error: 'Endpoint path not matched' });
+
     } catch (error) {
-        res.status(200).json({ "metas": [] });
+        console.error(error);
+        return res.status(500).json({ error: 'Internal pipeline broken fetching remote sports JSON content' });
     }
-});
-
-// Route C: CATCH-ALL ROUTE FOR STREAM REQUESTS
-app.get('/stream/*', async (req, res) => {
-    try {
-        // Read the entire URL path directly to avoid parameter splitting issues
-        // Example path: /stream/sport/live:18172.json
-        const rawPath = decodeURIComponent(req.path);
-        
-        // Extract out the stream ID by searching for everything after the last slash or colon
-        let cleanId = rawPath.substring(rawPath.lastIndexOf('/') + 1);
-        cleanId = cleanId.replace('live:', '').replace('streamed:', '').replace('.json', '').trim();
-
-        const rawData = await fetchLiveStreams();
-        let foundStream = null;
-
-        if (rawData && rawData.success && Array.isArray(rawData.streams)) {
-            for (const categoryObj of rawData.streams) {
-                if (Array.isArray(categoryObj.streams)) {
-                    foundStream = categoryObj.streams.find(s => 
-                        String(s.id) === String(cleanId) || 
-                        String(s.uri_name) === String(cleanId) ||
-                        slugify(s.name) === slugify(cleanId) ||
-                        slugify(s.uri_name) === slugify(cleanId)
-                    );
-                    if (foundStream) break;
-                }
-            }
-        }
-
-        if (!foundStream || !foundStream.iframe) {
-            return res.status(200).json({ "streams": [] });
-        }
-
-        res.status(200).json({
-            "streams": [
-                {
-                    "name": foundStream.source_tag || "Leaf (4K)",
-                    "title": `${foundStream.name || 'Live Event'}\n1920x1080 · Stereo · Live Feed`,
-                    "externalUrl": foundStream.iframe
-                }
-            ]
-        });
-    } catch (error) {
-        res.status(200).json({ "streams": [] });
-    }
-});
-
-module.exports = app;
+};
