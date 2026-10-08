@@ -30,7 +30,6 @@ const manifest = {
 };
 
 module.exports = async (req, res) => {
-    // Inject correct headers for cross-origin handshakes
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Headers', '*');
     res.setHeader('Content-Type', 'application/json');
@@ -39,24 +38,37 @@ module.exports = async (req, res) => {
         return res.status(200).end();
     }
 
-    // Safely parse the incoming path using standard string cleaning
     const rawUrl = req.url || '';
+    // Safely extract path string before any query parameters
     const cleanPath = rawUrl.split('?')[0]; 
 
-    // 1. Manifest Endpoint Routing
+    // 1. Manifest Endpoint
     if (cleanPath === '/' || cleanPath === '/manifest.json' || cleanPath.endsWith('/api') || cleanPath.endsWith('/api/index')) {
         return res.status(200).json(manifest);
     }
 
+    // Initialize data storage safely
+    let data = {};
     try {
-        const apiResponse = await axios.get(API_URL);
-        const data = apiResponse.data || {};
+        const apiResponse = await axios.get(API_URL, { timeout: 8000 });
+        data = apiResponse.data || {};
+    } catch (apiErr) {
+        console.error('Failed to fetch sports API payload:', apiErr.message);
+        // If external API times out, return empty structures quickly to prevent Stremio stalling
+        if (cleanPath.includes('/catalog/')) return res.status(200).json({ metas: [] });
+        if (cleanPath.includes('/stream/')) return res.status(200).json({ streams: [] });
+        if (cleanPath.includes('/meta/')) return res.status(200).json({ meta: {} });
+        return res.status(200).json(manifest);
+    }
 
-        // 2. Catalog Endpoint Routing
-        if (cleanPath.includes('/catalog/tv/')) {
-            const catalogId = cleanPath.split('/catalog/tv/')[1].replace('.json', '');
+    // 2. Catalog Endpoint
+    if (cleanPath.includes('/catalog/tv/')) {
+        try {
+            const parts = cleanPath.split('/catalog/tv/');
+            const catalogFileName = parts[parts.length - 1] || '';
+            const catalogId = catalogFileName.replace('.json', '');
+            
             let items = [];
-
             if (catalogId === 'bintv_live' && data['Live Events']) {
                 items = data['Live Events'];
             } else if (catalogId === 'bintv_upcoming' && data['Upcoming Events']) {
@@ -68,20 +80,26 @@ module.exports = async (req, res) => {
             const metas = items.map(item => ({
                 id: `bintv:${item.id}`,
                 type: 'tv',
-                name: item.name || 'Unknown Event',
-                poster: item.poster || '',
-                banner: item.poster || '',
-                genres: [item.category || 'Sports'],
-                description: `Status: ${item.status || 'Active'}`
+                name: String(item.name || 'Unknown Event'),
+                poster: String(item.poster || ''),
+                banner: String(item.poster || ''),
+                genres: [String(item.category || 'Sports')],
+                description: `Status: ${String(item.status || 'Active')}`
             }));
 
             return res.status(200).json({ metas });
+        } catch (err) {
+            console.error('Catalog serialization crashed:', err.message);
+            return res.status(200).json({ metas: [] });
         }
+    }
 
-        // 3. Meta Endpoint Routing
-        if (cleanPath.includes('/meta/tv/')) {
-            const pathId = cleanPath.split('/meta/tv/')[1].replace('.json', '');
-            const rawId = decodeURIComponent(pathId).replace('bintv:', '');
+    // 3. Meta Endpoint
+    if (cleanPath.includes('/meta/tv/')) {
+        try {
+            const parts = cleanPath.split('/meta/tv/');
+            const metaFileName = parts[parts.length - 1] || '';
+            const rawId = decodeURIComponent(metaFileName.replace('.json', '')).replace('bintv:', '');
             
             const allItems = [
                 ...(data['Live Events'] || []),
@@ -89,27 +107,32 @@ module.exports = async (req, res) => {
                 ...(data['24/7 Channels'] || [])
             ];
             
-            const item = allItems.find(i => i.id === rawId);
-
-            if (!item) return res.status(404).json({ error: 'Item not found' });
+            const item = allItems.find(i => String(i.id) === String(rawId));
+            if (!item) return res.status(200).json({ meta: {} });
 
             const meta = {
                 id: `bintv:${item.id}`,
                 type: 'tv',
-                name: item.name || 'Unknown Event',
-                poster: item.poster || '',
-                banner: item.poster || '',
-                genres: [item.category || 'Sports'],
-                description: `Watch live video coverage of ${item.name || 'this channel'}.`
+                name: String(item.name || 'Unknown Event'),
+                poster: String(item.poster || ''),
+                banner: String(item.poster || ''),
+                genres: [String(item.category || 'Sports')],
+                description: `Watch live video coverage of ${String(item.name || 'this channel')}.`
             };
 
             return res.status(200).json({ meta });
+        } catch (err) {
+            console.error('Meta parser crashed:', err.message);
+            return res.status(200).json({ meta: {} });
         }
+    }
 
-        // 4. Stream Endpoint Routing
-        if (cleanPath.includes('/stream/tv/')) {
-            const pathId = cleanPath.split('/stream/tv/')[1].replace('.json', '');
-            const rawId = decodeURIComponent(pathId).replace('bintv:', '');
+    // 4. Stream Endpoint
+    if (cleanPath.includes('/stream/tv/')) {
+        try {
+            const parts = cleanPath.split('/stream/tv/');
+            const streamFileName = parts[parts.length - 1] || '';
+            const rawId = decodeURIComponent(streamFileName.replace('.json', '')).replace('bintv:', '');
             
             const allItems = [
                 ...(data['Live Events'] || []),
@@ -117,19 +140,16 @@ module.exports = async (req, res) => {
                 ...(data['24/7 Channels'] || [])
             ];
             
-            const item = allItems.find(i => i.id === rawId);
-
-            if (!item || !item.streams) {
-                return res.status(200).json({ streams: [] });
-            }
+            const item = allItems.find(i => String(i.id) === String(rawId));
+            if (!item || !item.streams) return res.status(200).json({ streams: [] });
 
             const streams = item.streams.map(stream => {
                 const streamObj = {
-                    name: `BinTV\n${stream.name || 'Link'}`,
-                    title: item.name || 'Stream'
+                    name: `BinTV\n${String(stream.name || 'Link')}`,
+                    title: String(item.name || 'Stream')
                 };
 
-                const streamUrl = stream.url || '';
+                const streamUrl = String(stream.url || '');
                 if (streamUrl.includes('.m3u8') || streamUrl.includes('.mpd')) {
                     streamObj.url = streamUrl;
                 } else {
@@ -140,24 +160,11 @@ module.exports = async (req, res) => {
             });
 
             return res.status(200).json({ streams });
-        }
-
-        return res.status(404).json({ error: 'Endpoint path not matched' });
-
-    } catch (error) {
-        console.error('Addon Engine Exception Context:', error.message);
-        
-        // Dynamically return clean responses corresponding strictly to the endpoint type
-        if (cleanPath.includes('/catalog/')) {
-            return res.status(200).json({ metas: [] });
-        }
-        if (cleanPath.includes('/stream/')) {
+        } catch (err) {
+            console.error('Stream processing crashed:', err.message);
             return res.status(200).json({ streams: [] });
         }
-        if (cleanPath.includes('/meta/')) {
-            return res.status(200).json({ meta: {} });
-        }
-        
-        return res.status(200).json(manifest);
     }
+
+    return res.status(404).json({ error: 'Endpoint path not matched' });
 };
