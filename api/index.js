@@ -30,25 +30,32 @@ const manifest = {
 };
 
 module.exports = async (req, res) => {
+    // Force set headers to completely remove any CORS blocks or parsing friction
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Headers', '*');
     res.setHeader('Content-Type', 'application/json');
 
-    // FIX: Safely parse out the true clean string pathname without queries
-    const cleanPath = req.url.split('?')[0];
+    // Handle initial pre-flight check options safely
+    if (req.method === 'OPTIONS') {
+        return res.status(200).end();
+    }
 
-    // Manifest Endpoint
-    if (cleanPath === '/' || cleanPath === '/manifest.json') {
+    // Safely extract the pathname as a pure string
+    const fullUrl = req.url || '';
+    const cleanPath = fullUrl.split('?')[0];
+
+    // Manifest Endpoint - Catches all common root variations
+    if (cleanPath === '/' || cleanPath === '/manifest.json' || cleanPath === '/api' || cleanPath === '/api/index') {
         return res.status(200).json(manifest);
     }
 
     try {
         const apiResponse = await axios.get(API_URL);
-        const data = apiResponse.data;
+        const data = apiResponse.data || {};
 
         // Catalog Endpoint
-        if (cleanPath.startsWith('/catalog/tv/')) {
-            const catalogId = cleanPath.replace('/catalog/tv/', '').replace('.json', '');
+        if (cleanPath.includes('/catalog/tv/')) {
+            const catalogId = cleanPath.split('/catalog/tv/')[1].replace('.json', '');
             let items = [];
 
             if (catalogId === 'bintv_live' && data['Live Events']) {
@@ -62,9 +69,9 @@ module.exports = async (req, res) => {
             const metas = items.map(item => ({
                 id: `bintv:${item.id}`,
                 type: 'tv',
-                name: item.name,
-                poster: item.poster,
-                banner: item.poster,
+                name: item.name || 'Unknown Event',
+                poster: item.poster || '',
+                banner: item.poster || '',
                 genres: [item.category || 'Sports'],
                 description: `Status: ${item.status || 'Active'}`
             }));
@@ -73,9 +80,9 @@ module.exports = async (req, res) => {
         }
 
         // Meta Endpoint
-        if (cleanPath.startsWith('/meta/tv/')) {
-            // FIX: Using decodeURIComponent to handle special characters or dashes in IDs safely
-            const rawId = decodeURIComponent(cleanPath.replace('/meta/tv/', '').replace('.json', '').replace('bintv:', ''));
+        if (cleanPath.includes('/meta/tv/')) {
+            const pathId = cleanPath.split('/meta/tv/')[1].replace('.json', '');
+            const rawId = decodeURIComponent(pathId).replace('bintv:', '');
             
             const allItems = [
                 ...(data['Live Events'] || []),
@@ -90,19 +97,20 @@ module.exports = async (req, res) => {
             const meta = {
                 id: `bintv:${item.id}`,
                 type: 'tv',
-                name: item.name,
-                poster: item.poster,
-                banner: item.poster,
+                name: item.name || 'Unknown Event',
+                poster: item.poster || '',
+                banner: item.poster || '',
                 genres: [item.category || 'Sports'],
-                description: `Watch live video coverage of ${item.name}.`
+                description: `Watch live video coverage of ${item.name || 'this channel'}.`
             };
 
             return res.status(200).json({ meta });
         }
 
         // Stream Endpoint
-        if (cleanPath.startsWith('/stream/tv/')) {
-            const rawId = decodeURIComponent(cleanPath.replace('/stream/tv/', '').replace('.json', '').replace('bintv:', ''));
+        if (cleanPath.includes('/stream/tv/')) {
+            const pathId = cleanPath.split('/stream/tv/')[1].replace('.json', '');
+            const rawId = decodeURIComponent(pathId).replace('bintv:', '');
             
             const allItems = [
                 ...(data['Live Events'] || []),
@@ -118,14 +126,15 @@ module.exports = async (req, res) => {
 
             const streams = item.streams.map(stream => {
                 const streamObj = {
-                    name: `BinTV\n${stream.name}`,
-                    title: item.name
+                    name: `BinTV\n${stream.name || 'Link'}`,
+                    title: item.name || 'Stream'
                 };
 
-                if (stream.url.includes('.m3u8') || stream.url.includes('.mpd')) {
-                    streamObj.url = stream.url;
+                const streamUrl = stream.url || '';
+                if (streamUrl.includes('.m3u8') || streamUrl.includes('.mpd')) {
+                    streamObj.url = streamUrl;
                 } else {
-                    streamObj.externalUrl = stream.url;
+                    streamObj.externalUrl = streamUrl;
                 }
 
                 return streamObj;
@@ -134,10 +143,15 @@ module.exports = async (req, res) => {
             return res.status(200).json({ streams });
         }
 
+        // Fallback catch-all error handling for unrecognized stream routes
         return res.status(404).json({ error: 'Endpoint path not matched' });
 
     } catch (error) {
-        console.error(error);
-        return res.status(500).json({ error: 'Internal server error processing payload infrastructure' });
+        console.error('Addon Engine Crash Hook:', error.message);
+        return res.status(200).json({ 
+            metas: [], 
+            streams: [], 
+            note: 'Graceful crash recovery active. Check remote API target status.' 
+        });
     }
 };
